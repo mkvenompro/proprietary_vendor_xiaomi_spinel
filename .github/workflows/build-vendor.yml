@@ -96,7 +96,6 @@ jobs:
             tar -xz --strip-components=1 -C $ROOT/dump
           
           cd $ROOT/device/xiaomi/spinel
-          sed -i 's/add_firmware_proprietary_file=True,/add_firmware_proprietary_file=False,/' extract-files.py
           export PYTHONPATH=$ROOT/tools/extract-utils:$PYTHONPATH
           ./extract-files.py $ROOT/dump
 
@@ -105,45 +104,60 @@ jobs:
           ROOT=$GITHUB_WORKSPACE/root
           cd $ROOT/device/xiaomi/spinel
           
-          declare -A fw_shas
-          while read line; do
-            case "$line" in
-              \#*|'') continue ;;
-            esac
-            fname=$(echo "$line" | sed -E 's/.*[;:]([^|;:]+).*\$/\1/' | xargs 2>/dev/null)
-            sha=$(echo "$line" | sed -E 's/([0-9a-fA-F]{40}).*/\1/' | xargs 2>/dev/null)
-            fw_shas["$fname"]="$sha"
-          done < proprietary-firmware.txt
+          echo ">>> استخراج ملفات البوتلودر من الـ stock Fastboot..."
           
-          mkdir -p vendor/xiaomi/spinel/radio
+          cat << 'PYEOF' > generate_radio_mk.py
+          #!/usr/bin/env python3
+          import hashlib
+          import os
           
-          for fname in dpm gz lk mcupm md1img pi_img preloader_raw scp spmfw sspm tee; do
-            src_base="$fname.img"
-            src_path=$ROOT/vendor-bootloader/$src_base
-            actual_sha=$(sha1sum "$src_path" | awk '{print $1}')
-            if [ -n "$actual_sha" ]; then
-              cp "$src_path" vendor/xiaomi/spinel/radio/
-              fw_shas["$fname"]="$actual_sha"
-              echo "دمج $fname ($actual_sha)"
-            else
-              echo "تحذير: $fname غير موجود"
-            fi
-          done
+          VENDOR_BOOTLOADER = os.environ.get("ROOT", "") + "/vendor-bootloader"
+          RADIO_DIR = "vendor/xiaomi/spinel/radio"
           
-          echo "# تلقائيًا تم إنشاؤه بواسطة CI. لا تقم بالتعديل." > vendor/xiaomi/spinel/radio/Android.mk
-          echo "" >> vendor/xiaomi/spinel/radio/Android.mk
-          for fname in dpm gz lk mcupm md1img pi_img preloader_raw scp spmfw sspm tee; do
-            actual_sha=${fw_shas[$fname]}
-            if [ -n "$actual_sha" ]; then
-              echo "$(call add-radio-file-sha1-checked,$fname.img,$actual_sha)" >> vendor/xiaomi/spinel/radio/Android.mk
-            fi
-          done
+          os.makedirs(RADIO_DIR, exist_ok=True)
+          
+          firmware_files = {
+              "lk": "lk.img",
+              "scp": "scp.img",
+              "spmfw": "spmfw.img",
+              "sspm": "sspm.img",
+              "preloader_raw": "preloader_raw.img",
+              "tee": "tee.img",
+              "dpm": "dpm.img",
+              "mcupm": "mcupm.img",
+              "gz": "gz.img",
+          }
+          
+          entries = []
+          for fw_key, fw_file in firmware_files.items():
+              src_path = os.path.join(VENDOR_BOOTLOADER, fw_file)
+              if os.path.exists(src_path):
+                  dest_path = os.path.join(RADIO_DIR, fw_file)
+                  with open(src_path, "rb") as src_f:
+                      content = src_f.read()
+                  with open(dest_path, "wb") as dest_f:
+                      dest_f.write(content)
+                  sha1 = hashlib.sha1(content).hexdigest()
+                  entries.append(f"$(call add-radio-file-sha1-checked,{fw_file},{sha1})")
+                  print(f"تم دمج {fw_file} ({sha1})")
+              else:
+                  print(f"تحذير: {fw_file} غير موجود في vendor-bootloader")
+          
+          with open(os.path.join(RADIO_DIR, "Android.mk"), "w") as f:
+              f.write("# تلقائيًا تم إنشاؤه بواسطة CI. لا تقم بالتعديل.\n\n")
+              for entry in entries:
+                  f.write(entry + "\n")
+          
+          print(">>> تم إنشاء Android.mk للـ radio:")
+          with open(os.path.join(RADIO_DIR, "Android.mk"), "r") as f:
+              print(f.read())
+          PYEOF
+          ROOT="$ROOT" python3 generate_radio_mk.py
 
       - name: صياغة vendor tree
         run: |
           ROOT=$GITHUB_WORKSPACE/root
           cd $ROOT/device/xiaomi/spinel
-          # vendor tree مكتمل تحته vendor/xiaomi/spinel/
           echo ">>> هيكل vendor tree:"
           find vendor/xiaomi/spinel -maxdepth 2 -type d
           ls -la vendor/xiaomi/spinel/radio/ 2>/dev/null
@@ -157,4 +171,4 @@ jobs:
           git commit -m "بناء الـ vendor من ROM الـ stock لـ VPGMIXM (OS2.0.212.0) - $TIMESTAMP"
           git remote add vendor https://github.com/mkvenompro/proprietary_vendor_xiaomi_spinel.git
           git push vendor lineage-23.2
-          echo "✅ تم النشر إلى: https://github.com/mkvenompro/proprietary_vendor_xiaomi_spinel/tree/lineage-23.2"
+          echo "تم النشر إلى: https://github.com/mkvenompro/proprietary_vendor_xiaomi_spinel/tree/lineage-23.2"
