@@ -1,174 +1,214 @@
-name: بناء شجرة الـ vendor من ROM الـ stock لـ VPGMIXM
+#
+# Populates this (vendor/xiaomi/spinel) repo by running extract-files.py
+# from the device tree repo against the dump on GitLab, then commits and
+# pushes whatever it generates (proprietary blobs, Android.bp,
+# spinel-vendor.mk, BoardConfigVendor.mk...) straight into this repo.
+#
+# Put this file at: .github/workflows/extract-vendor.yml  (in the VENDOR repo)
+#
+# No secrets needed for the dump — it's a public GitLab repo.
+# GITHUB_TOKEN (default, automatic) is used to push back into this same
+# vendor repo.
+#
+
+name: Extract vendor tree from dump
 
 on:
   workflow_dispatch:
     inputs:
-      stock_url:
-        description: 'رابط تنزيل Fastboot ROM الـ stock لـ VPGMIXM (OS2.0.212.0.VPGMIXM)'
+      dump_repo:
+        description: "GitLab dump repo (owner/name)"
         required: true
-        default: 'https://bigota.d.miui.com/OS2.0.212.0.VPGMIXM/spinel_global_images_OS2.0.212.0.VPGMIXM_20260311.0000.00_15.0_global_1e7d24d317.tgz'
-      dump_sha:
-        description: 'GitLab dump SHA (لـ proprietary-files.txt)'
+        default: "mkpromvp/dumber-2-mk"
+      dump_branch:
+        description: "Branch on the dump repo to extract from"
+        required: true
+        default: "dump-redmi-spinel-os2.0.212.0.vpgmixm"
+      device_tree_repo:
+        description: "GitHub device tree repo (owner/name) — source of extract-files.py"
+        required: true
+        default: "mkvenompro/android_device_xiaomi_spinel"
+      device_tree_ref:
+        description: "Branch/tag/ref of the device tree repo"
+        required: true
+        default: "lineage=23.2"
+      extract_utils_ref:
+        description: "Branch/tag/ref of LineageOS/android_tools_extract-utils"
+        required: true
+        default: "lineage-23.2"
+      commit_message:
+        description: "Commit message for the generated vendor tree"
+        required: true
+        default: "spinel: initial extract from OS2.0.212.0.VPGMIXM dump"
+      stock_rom_url:
+        description: "(Optional) Direct download link to the stock fastboot ROM archive — adds preloader/lk/tee/modem/etc. Leave empty to skip."
         required: false
-        default: '51a7d8118db68c9caca33756452bde31f61b9552'
-
-env:
-  DEVICE: spinel
-  VENDOR: xiaomi
+        default: ""
 
 jobs:
-  build-vendor:
+  extract-vendor:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: read
 
     steps:
-      - name: إعداد البيئة والأدوات
+      - name: Checkout vendor repo (this repo)
+        uses: actions/checkout@v4
+        with:
+          path: vendor/xiaomi/spinel
+          fetch-depth: 0
+
+      - name: Checkout device tree repo (for extract-files.py)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.device_tree_repo }}
+          ref: ${{ github.event.inputs.device_tree_ref }}
+          path: device/xiaomi/spinel
+
+      - name: Checkout extract_utils (extract-files.py's python module)
+        uses: actions/checkout@v4
+        with:
+          repository: LineageOS/android_tools_extract-utils
+          ref: ${{ github.event.inputs.extract_utils_ref }}
+          path: tools/extract-utils
+
+      - name: Checkout extract-tools prebuilts (sdat2img, payload dumper, etc.)
+        uses: actions/checkout@v4
+        with:
+          repository: LineageOS/android_prebuilts_extract-tools
+          path: prebuilts/extract-tools
+          continue-on-error: true
+
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl tar git unzip jq llvm
-          mkdir -p $GITHUB_WORKSPACE/root/device/xiaomi
-          mkdir -p $GITHUB_WORKSPACE/root/tools
-          df -h /
-
-      - name: استنساخ ريبو الجهاز المحلي
-        run: |
-          cd $GITHUB_WORKSPACE/root/device/xiaomi
-          git clone --depth 1 https://github.com/mkvenompro/android_device_xiaomi_spinel.git spinel
-          cd spinel
-          git config user.email "action@github.com"
-          git config user.name "GitHub Action"
-          git checkout -B lineage-23.2
-
-      - name: استنساخ kernel reference
-        run: |
-          cd $GITHUB_WORKSPACE/root/device/xiaomi
-          git clone --depth 1 --branch lineage-23.2 https://github.com/mkvenompro/android_device_xiaomi_spinel-kernel.git spinel-kernel
-
-      - name: استنساخ extract-utils
-        run: |
-          cd $GITHUB_WORKSPACE/root/tools
-          git clone --depth 1 --branch lineage-22.2 https://github.com/LineageOS/android_tools_extract-utils.git extract-utils
-
-      - name: Download ROM الـ stock Fastboot واستخراج أقساط البوتلودر
-        run: |
-          ROOT=$GITHUB_WORKSPACE/root
-          STOCK_URL="${{ github.event.inputs.stock_url }}"
-          
-          mkdir -p $ROOT/stock
-          cd $ROOT/stock
-          echo ">>> تنزيل ROM الـ stock..."
-          curl -L --fail --retry 3 "$STOCK_URL" -o stock_rom.tgz
-          
-          echo ">>> استخراج ROM الـ stock..."
-          tar -xzf stock_rom.tgz
-          
-          IMAGES_DIR=$(find "$ROOT/stock" -type d -name "images" | head -n1)
-          if [ -z "$IMAGES_DIR" ]; then
-            IMAGES_DIR=$(find "$ROOT/stock" -type d -name "spinel_*" | head -n1)/images
+          sudo apt-get install -y git-lfs python3 python3-pip patchelf
+          pip3 install --break-system-packages pyyaml requests
+          if [ -f tools/extract-utils/requirements.txt ]; then
+            pip3 install --break-system-packages -r tools/extract-utils/requirements.txt
           fi
-          echo ">>> Images directory: $IMAGES_DIR"
-          
-          mkdir -p $ROOT/vendor-bootloader
-          
-          find "$IMAGES_DIR" -type f \( -name "*.img" -o -name "*preloader*.bin" \) | while read f; do
-            base=$(basename "$f")
-            echo "معالجة $base"
-            case "$base" in
-              lk_fenrir.img|lk*.img) cp "$f" $ROOT/vendor-bootloader/lk.img ;;
-              preloader_spinel.bin|preloader_*.bin) cp "$f" $ROOT/vendor-bootloader/preloader_raw.img ;;
-              *) cp "$f" $ROOT/vendor-bootloader/ ;;
-            esac
+
+      - name: Clone the dump from GitLab
+        run: |
+          set -e
+          git clone --depth 1 \
+            --branch "${{ github.event.inputs.dump_branch }}" \
+            "https://gitlab.com/${{ github.event.inputs.dump_repo }}.git" \
+            /tmp/dump
+
+          echo "Dump files: $(find /tmp/dump -type f | wc -l)"
+
+      - name: Download and extract the stock ROM (optional)
+        if: ${{ github.event.inputs.stock_rom_url != '' }}
+        run: |
+          set -e
+          sudo apt-get install -y p7zip-full unzip
+          mkdir -p /tmp/stock_raw /tmp/stock_extracted
+
+          echo "Downloading stock ROM..."
+          curl -L --fail -o /tmp/stock.dl "${{ github.event.inputs.stock_rom_url }}"
+          echo "Downloaded: $(du -h /tmp/stock.dl | cut -f1)"
+
+          # Auto-detect the real file type regardless of extension/URL shape.
+          FTYPE="$(file -b --mime-type /tmp/stock.dl)"
+          echo "Detected type: $FTYPE"
+
+          cd /tmp/stock_raw
+          case "$FTYPE" in
+            application/gzip|application/x-gzip)
+              # Could be a plain .gz of a single file, or a .tar.gz — try tar first.
+              if tar tzf /tmp/stock.dl >/dev/null 2>&1; then
+                tar xzf /tmp/stock.dl
+              else
+                gzip -dc /tmp/stock.dl > stock_out.bin
+              fi
+              ;;
+            application/x-tar)
+              tar xf /tmp/stock.dl
+              ;;
+            application/zip)
+              unzip -q /tmp/stock.dl
+              ;;
+            application/x-7z-compressed)
+              7z x /tmp/stock.dl
+              ;;
+            *)
+              echo "Unrecognized archive type ($FTYPE) — trying 7z as a universal fallback..."
+              7z x /tmp/stock.dl || {
+                echo "ERROR: could not extract the stock ROM automatically."
+                echo "Downloaded file kept at /tmp/stock.dl for manual inspection."
+                exit 1
+              }
+              ;;
+          esac
+
+          # If what we got is itself a zip/tar/7z (nested archive), one more pass.
+          find /tmp/stock_raw -maxdepth 2 -iname "*.zip" -exec sh -c 'cd "$(dirname "$1")" && unzip -q -o "$1"' _ {} \;
+          find /tmp/stock_raw -maxdepth 2 -iname "*.tar*" -exec sh -c 'cd "$(dirname "$1")" && tar xf "$1"' _ {} \;
+          find /tmp/stock_raw -maxdepth 2 -iname "*.7z" -exec sh -c 'cd "$(dirname "$1")" && 7z x -y "$1"' _ {} \;
+
+          find /tmp/stock_raw -type f > /tmp/stock_raw_files.txt
+          echo "Stock ROM files after extraction: $(wc -l < /tmp/stock_raw_files.txt)"
+          echo "--- sample ---"
+          head -30 /tmp/stock_raw_files.txt
+
+      - name: Merge stock firmware partitions into the dump
+        if: ${{ github.event.inputs.stock_rom_url != '' }}
+        run: |
+          set -e
+          # Only pull the raw firmware partitions the dump doesn't already have
+          # (preloader/lk/tee/modem/etc.) — we don't want to overwrite the
+          # already-extracted system/vendor/product from the dump.
+          FW_NAMES="preloader lk tee scp sspm mcupm spmfw gz dpm pi_img md1img md1dsp"
+          COPIED=0
+          for name in $FW_NAMES; do
+            match=$(find /tmp/stock_raw -type f -iname "${name}*.img" -o -iname "${name}*.bin" 2>/dev/null | head -1)
+            if [ -n "$match" ]; then
+              cp "$match" "/tmp/dump/$(basename "$match")"
+              echo "Added firmware file: $(basename "$match")"
+              COPIED=$((COPIED + 1))
+            fi
           done
-          
-          echo ">>> أقساط البوتلودر المستخرجة:"
-          ls -la $ROOT/vendor-bootloader/
+          echo "Firmware files merged into dump: $COPIED"
+          if [ "$COPIED" -eq 0 ]; then
+            echo "WARNING: none of the expected firmware partition names were found in the stock ROM archive."
+            echo "Check the uploaded 'stock-rom-filelist' artifact to see what's actually in there."
+          fi
 
-      - name: استخراج الـ blobs من GitLab dump
-        run: |
-          ROOT=$GITHUB_WORKSPACE/root
-          DUMP_SHA="${{ github.event.inputs.dump_sha }}"
-          
-          mkdir -p $ROOT/dump
-          echo ">>> تنزيل GitLab dump لـ commit: $DUMP_SHA"
-          curl -L --retry 3 --fail "https://gitlab.com/api/v4/projects/mkpromvp%2Fdumber-2-mk/repository/archive.tar.gz?sha=$DUMP_SHA" |
-            tar -xz --strip-components=1 -C $ROOT/dump
-          
-          cd $ROOT/device/xiaomi/spinel
-          export PYTHONPATH=$ROOT/tools/extract-utils:$PYTHONPATH
-          ./extract-files.py $ROOT/dump
+      - name: Upload stock ROM file listing (for debugging)
+        if: ${{ github.event.inputs.stock_rom_url != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-rom-filelist
+          path: /tmp/stock_raw_files.txt
+          retention-days: 7
 
-      - name: دمج ملفات البوتلودر المستخرجة
+      - name: Run extract-files.py
         run: |
-          ROOT=$GITHUB_WORKSPACE/root
-          cd $ROOT/device/xiaomi/spinel
-          
-          echo ">>> استخراج ملفات البوتلودر من الـ stock Fastboot..."
-          
-          cat << 'PYEOF' > generate_radio_mk.py
-          #!/usr/bin/env python3
-          import hashlib
-          import os
-          
-          VENDOR_BOOTLOADER = os.environ.get("ROOT", "") + "/vendor-bootloader"
-          RADIO_DIR = "vendor/xiaomi/spinel/radio"
-          
-          os.makedirs(RADIO_DIR, exist_ok=True)
-          
-          firmware_files = {
-              "lk": "lk.img",
-              "scp": "scp.img",
-              "spmfw": "spmfw.img",
-              "sspm": "sspm.img",
-              "preloader_raw": "preloader_raw.img",
-              "tee": "tee.img",
-              "dpm": "dpm.img",
-              "mcupm": "mcupm.img",
-              "gz": "gz.img",
-          }
-          
-          entries = []
-          for fw_key, fw_file in firmware_files.items():
-              src_path = os.path.join(VENDOR_BOOTLOADER, fw_file)
-              if os.path.exists(src_path):
-                  dest_path = os.path.join(RADIO_DIR, fw_file)
-                  with open(src_path, "rb") as src_f:
-                      content = src_f.read()
-                  with open(dest_path, "wb") as dest_f:
-                      dest_f.write(content)
-                  sha1 = hashlib.sha1(content).hexdigest()
-                  entries.append(f"$(call add-radio-file-sha1-checked,{fw_file},{sha1})")
-                  print(f"تم دمج {fw_file} ({sha1})")
-              else:
-                  print(f"تحذير: {fw_file} غير موجود في vendor-bootloader")
-          
-          with open(os.path.join(RADIO_DIR, "Android.mk"), "w") as f:
-              f.write("# تلقائيًا تم إنشاؤه بواسطة CI. لا تقم بالتعديل.\n\n")
-              for entry in entries:
-                  f.write(entry + "\n")
-          
-          print(">>> تم إنشاء Android.mk للـ radio:")
-          with open(os.path.join(RADIO_DIR, "Android.mk"), "r") as f:
-              print(f.read())
-          PYEOF
-          ROOT="$ROOT" python3 generate_radio_mk.py
+          set -e
+          cd device/xiaomi/spinel
+          chmod +x extract-files.py
+          export PYTHONPATH="$GITHUB_WORKSPACE/tools/extract-utils"
+          python3 extract-files.py /tmp/dump
 
-      - name: صياغة vendor tree
+      - name: Show what changed
+        working-directory: vendor/xiaomi/spinel
         run: |
-          ROOT=$GITHUB_WORKSPACE/root
-          cd $ROOT/device/xiaomi/spinel
-          echo ">>> هيكل vendor tree:"
-          find vendor/xiaomi/spinel -maxdepth 2 -type d
-          ls -la vendor/xiaomi/spinel/radio/ 2>/dev/null
+          git status --porcelain | head -50
+          echo "Total changed/new files: $(git status --porcelain | wc -l)"
 
-      - name: Commit والنشر إلى reopository vendor
+      - name: Commit and push to this vendor repo
+        working-directory: vendor/xiaomi/spinel
         run: |
-          ROOT=$GITHUB_WORKSPACE/root
-          cd $ROOT/device/xiaomi/spinel
-          git add vendor/
-          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          git commit -m "بناء الـ vendor من ROM الـ stock لـ VPGMIXM (OS2.0.212.0) - $TIMESTAMP"
-          git remote add vendor https://github.com/mkvenompro/proprietary_vendor_xiaomi_spinel.git
-          git push vendor lineage-23.2
-          echo "تم النشر إلى: https://github.com/mkvenompro/proprietary_vendor_xiaomi_spinel/tree/lineage-23.2"
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "Nothing to commit — extract-files.py produced no changes."
+            exit 0
+          fi
+
+          git add -A
+          git commit -m "${{ github.event.inputs.commit_message }}"
+          git push origin HEAD
