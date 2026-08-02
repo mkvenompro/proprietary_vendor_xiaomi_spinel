@@ -15,8 +15,6 @@ on:
 env:
   DEVICE: spinel
   VENDOR: xiaomi
-  KERNEL_BRANCH: lineage-23.2
-  KERNEL_REPO: mkvenompro/android_device_xiaomi_spinel-kernel
 
 jobs:
   build-vendor:
@@ -26,246 +24,212 @@ jobs:
       actions: read
 
     steps:
-      - name: إعداد البيئة
+      - name: إعداد البيئة والأدوات
         run: |
-          sudo apt-get update && sudo apt-get install -y curl tar git unzip jq coreutils
+          sudo apt-get update
+          sudo apt-get install -y curl tar git unzip jq llvm
+          # إنشاء هيكل Android tree المطلوب
+          mkdir -p "$GITHUB_WORKSPACE/root/device/xiaomi"
+          mkdir -p "$GITHUB_WORKSPACE/root/device/xiaomi/spinel-kernel"
+          mkdir -p "$GITHUB_WORKSPACE/root/tools"
           df -h /
-          free -h
 
       - name: استنساخ ريبو الجهاز المحلي
         run: |
-          git clone --depth 1 https://github.com/mkvenompro/android_device_xiaomi_spinel.git $GITHUB_WORKSPACE/android_device_xiaomi_spinel
-          cd $GITHUB_WORKSPACE/android_device_xiaomi_spinel
+          cd "$GITHUB_WORKSPACE/root/device/xiaomi"
+          git clone --depth 1 https://github.com/mkvenompro/android_device_xiaomi_spinel.git spinel
+          cd spinel
           git config user.email "action@github.com"
           git config user.name "GitHub Action"
+          git checkout -B lineage-23.2
+
+      - name: استنساخ kernel reference
+        run: |
+          cd "$GITHUB_WORKSPACE/root/device/xiaomi/spinel-kernel"
+          git init
+          git remote add origin https://github.com/mkvenompro/android_device_xiaomi_spinel-kernel.git
+          git fetch --depth 1 origin lineage-23.2
+          git checkout -B lineage-23.2 FETCH_HEAD
 
       - name: استنساخ extract-utils
         run: |
-          mkdir -p $GITHUB_WORKSPACE/tools
-          git clone --depth 1 --branch lineage-22.2 https://github.com/LineageOS/android_tools_extract-utils.git $GITHUB_WORKSPACE/tools/extract-utils
-          export PYTHONPATH="$GITHUB_WORKSPACE/tools/extract-utils:$PYTHONPATH"
+          cd "$GITHUB_WORKSPACE/root/tools"
+          git clone --depth 1 --branch lineage-22.2 https://github.com/LineageOS/android_tools_extract-utils.git extract-utils
 
-      - name: Download ROM الـ stock Fastboot واستخراج أقساط الـ bootloader
+      - name: Download ROM الـ stock Fastboot واستخراج أقساط البوتلودر
         run: |
-          WORKSPACE="$GITHUB_WORKSPACE"
+          ROOT="$GITHUB_WORKSPACE/root"
           STOCK_URL="${{ github.event.inputs.stock_url }}"
           
-          mkdir -p "$WORKSPACE/stock"
-          cd "$WORKSPACE/stock"
-          echo "تنزيل ROM الـ stock: $(basename $STOCK_URL)"
+          mkdir -p "$ROOT/stock"
+          cd "$ROOT/stock"
+          echo ">>> تنزيل ROM الـ stock..."
           curl -L --fail --retry 3 "$STOCK_URL" -o stock_rom.tgz
           
-          echo "استخراج ROM الـ stock..."
+          echo ">>> استخراج ROM الـ stock..."
           tar -xzf stock_rom.tgz
           
-          # تحديد موقع ROM
-          STOCK_DIR=$(find "$WORKSPACE/stock" -maxdepth 1 -type d -name "spinel_global_images*" | head -n1)
-          echo "ROM directory: $STOCK_DIR"
+          # العثور على مجلد الـ images داخل أرشيف الـ fastboot ROM
+          IMAGES_DIR=$(find "$ROOT/stock" -type d -name "images" -print -quit)
+          if [[ -z "$IMAGES_DIR" ]]; then
+            # بعض الأرشيفات تضع الملفات في الجذر بعد فك الضغط
+            IMAGES_DIR=$(find "$ROOT/stock" -type d -name "spinel_*" | head -n1)
+          fi
+          echo ">>> Images directory: $IMAGES_DIR"
           
-          mkdir -p "$WORKSPACE/vendor-bootloader"
+          # إنشاء مجلد البوتلودر واستخراج الأقساط المطلوبة
+          mkdir -p "$ROOT/vendor-bootloader"
           
-          # استخراج جميع أقساط الـ bootloader المطلوبة
-          for f in "$STOCK_DIR"/images/*.img "$STOCK_DIR"/images/*_fenrir.img "$STOCK_DIR"/images/*preloader*.bin "$STOCK_DIR"/*.img "$STOCK_DIR"/*_fenrir.img "$STOCK_DIR"/*preloader*.bin; do
-            [ -f "$f" ] || continue
+          # استخراج وتسمية الأقساط حسب proprietary-firmware.txt
+          # تعيينات الاسم: lk_fenrir.img → lk.img ، preloader_spinel.bin → preloader_raw.img
+          find "$IMAGES_DIR" -type f \( -name "*.img" -o -name "*_fenrir.img" -o -name "*preloader*.bin" \) | while read -r f; do
             base=$(basename "$f")
             echo "معالجة $base"
             
-            # تطبيق الاسم القياسي من proprietary-firmware.txt
             case "$base" in
               lk_fenrir.img)
-                mv "$f" "$WORKSPACE/vendor-bootloader/lk.img"
+                cp "$f" "$ROOT/vendor-bootloader/lk.img"
                 ;;
-              preloader_spinel.bin)
-                mv "$f" "$WORKSPACE/vendor-bootloader/preloader_raw.img"
+              preloader_spinel.bin|preloader_*.bin)
+                cp "$f" "$ROOT/vendor-bootloader/preloader_raw.img"
                 ;;
               *)
-                mv "$f" "$WORKSPACE/vendor-bootloader/$base"
+                cp "$f" "$ROOT/vendor-bootloader/$base"
                 ;;
             esac
           done
           
-          echo "قائمة أقساط الـ bootloader المستخرجة:"
-          ls -la "$WORKSPACE/vendor-bootloader/"
+          echo ">>> قائمة أقساط البوتلودر المستخرجة:"
+          ls -la "$ROOT/vendor-bootloader/"
 
       - name: استخراج الـ blobs من GitLab dump
         run: |
-          WORKSPACE="$GITHUB_WORKSPACE"
+          ROOT="$GITHUB_WORKSPACE/root"
           DUMP_SHA="${{ github.event.inputs.dump_sha }}"
           
-          mkdir -p "$WORKSPACE/dump"
-          echo "تنزيل GitLab dump لـ commit: $DUMP_SHA"
+          mkdir -p "$ROOT/dump"
+          echo ">>> تنزيل GitLab dump لـ commit: $DUMP_SHA"
           curl -L --retry 3 --fail "https://gitlab.com/api/v4/projects/mkpromvp%2Fdumber-2-mk/repository/archive.tar.gz?sha=$DUMP_SHA" |
-            tar -xz --strip-components=1 -C "$WORKSPACE/dump"
+            tar -xz --strip-components=1 -C "$ROOT/dump"
           
-          echo "محتويات dump:"
-          ls -la "$WORKSPACE/dump"
+          echo ">>> محتويات dump:"
+          ls -la "$ROOT/dump"
           
-          # تشغيل extract-files.py مع تعطيل استخراج الـ firmware (لأننا استخرجناه من ROM الـ stock)
-          cd "$WORKSPACE/android_device_xiaomi_spinel"
+          # تشغيل extract-files.py مع تعطيل استخراج الـ firmware (لأنه غير موجود في dump)
+          cd "$ROOT/device/xiaomi/spinel"
           sed -i 's/add_firmware_proprietary_file=True,/add_firmware_proprietary_file=False,/' extract-files.py
-          ./extract-files.py "$WORKSPACE/dump"
+          export PYTHONPATH="$ROOT/tools/extract-utils:$PYTHONPATH"
+          ./extract-files.py "$ROOT/dump"
 
-      - name: دمج ملفات الـ bootloader المستخرجة من ROM الـ stock
+      - name: إعداد الـ vendor root directory
         run: |
-          WORKSPACE="$GITHUB_WORKSPACE"
-          DEVICE="$DEVICE"
+          ROOT="$GITHUB_WORKSPACE/root"
           VENDOR="$VENDOR"
-          cd "$WORKSPACE/android_device_xiaomi_spinel"
+          mkdir -p "$ROOT/vendor/xiaomi/spinel"
+
+      - name: دمج ملفات البوتلودر المستخرجة من ROM الـ stock
+        run: |
+          ROOT="$GITHUB_WORKSPACE/root"
+          VENDOR="$VENDOR"
+          cd "$ROOT/device/xiaomi/spinel"
           
-          # استخراج أسماء ملفات الـ SHA1 والـ firmware من proprietary-firmware.txt (من الدالف)
-          declare -A fw_shas
+          # استخراج قائمة الـ firmware و SHA1ها من proprietary-firmware.txt
+          declare -A fw_files fw_shas
+          
           while read -r line; do
             [[ "$line" =~ ^#.*$ ]] && continue
             [[ -z "$line" ]] && continue
             
-            # التنسيق: filename;AB أو filename:altname;AB أو filename|sha أو filename:altname|sha
-            filename=$(echo "$line" | sed -E 's/.*[;:]([^|;:]+)([;|].*)/\1/' | xargs 2>/dev/null)
-            sha=$(echo "$line" | sed -E 's/([0-9a-fA-F]{40}).*/\1/' | xargs 2>/dev/null)
-            
-            # استخراج الاسم الأساسي قبل الـ : إذا وجد
-            if [[ "$line" == *:* ]]; then
-              filename=$(echo "$line" | cut -d: -f1 | cut -d; -f1 | xargs 2>/dev/null)
-            fi
-            
-            if [[ -n "$filename" ]]; then
-              # إذا لم يتم العثور على sha، جرّب من dump
-              if [[ -z "$sha" && -f "$WORKSPACE/dump/proprietary-files.txt" ]]; then
-                sha=$(grep "$filename" "$WORKSPACE/dump/proprietary-files.txt" | grep -E '^[0-9a-fA-F]{40}' | head -n1 | xargs 2>/dev/null)
-              fi
-              fw_shas["$filename"]="$sha"
+            # التنسيق: name|sha أو name:altname;AB
+            if [[ "$line" == *"|"* ]]; then
+              # التنسيق: name|sha
+              file_part=${line%%|*}
+              sha_val=${line#*|}
+              fw_files["$file_part"]="$sha_val"
+            elif [[ "$line" == *":"* ]]; then
+              # التنسيق: filename:altname;AB
+              file_part=$(echo "$line" | cut -d: -f1 | cut -d; -f1 | xargs)
+              sha_val=$(echo "$line" | sed -n 's/.*\([0-9a-f]\{40\}\).*/\1/p' | xargs)
+              fw_files["$file_part"]="$sha_val"
+            else
+              # التنسيق: filename;AB
+              file_part=$(echo "$line" | cut -d; -f1 | xargs)
+              sha_val=$(echo "$line" | sed -n 's/.*\([0-9a-f]\{40\}\).*/\1/p' | xargs)
+              fw_files["$file_part"]="$sha_val"
             fi
           done < "proprietary-firmware.txt"
           
-          echo "أقساط الـ firmware المعروفة:"
-          for k in "${!fw_shas[@]}"; do echo "  $k -> ${fw_shas[$k]}"; done
+          echo ">>> أقساط الـ firmware المطلوبة:"
+          for k in "${!fw_files[@]}"; do echo "  $k -> ${fw_files[$k]}"; done
           
-          # دمج كل قس ط في vendor/$VENDOR/radio/ مع الـ SHA1 الصحيح
-          mkdir -p "vendor/$VENDOR/radio"
+          # دمج الأقساط في vendor/$VENDOR/radio/
+          mkdir -p "$ROOT/vendor/xiaomi/spinel/radio"
           
-          for fname in "${!fw_shas[@]}"; do
-            sha="${fw_shas[$fname]}"
-            src_path="$WORKSPACE/vendor-bootloader/$fname"
+          for fname in "${!fw_files[@]}"; do
+            # تحديد اسم الملف في vendor-bootloader
+            src_base="$fname"
+            case "$fname" in
+              lk) src_base="lk.img" ;;
+              preloader_raw) src_base="preloader_raw.img" ;;
+            esac
+            
+            src_path="$ROOT/vendor-bootloader/$src_base"
+            expected_sha="${fw_files[$fname]}"
             
             if [[ -f "$src_path" ]]; then
               actual_sha=$(sha1sum "$src_path" | awk '{print $1}')
-              if [[ -z "$sha" ]] || [[ "$actual_sha" == "$sha" ]]; then
-                echo "دمج $fname (SHA1: $(echo "$sha" | cut -c1-8)...)"
-                cp "$src_path" "vendor/$VENDOR/radio/"
+              if [[ -z "$expected_sha" || "$actual_sha" == "$expected_sha" || "$expected_sha" == "" ]]; then
+                echo "دمج $fname ($src_base)"
+                cp "$src_path" "$ROOT/vendor/xiaomi/spinel/radio/"
+                fw_shas["$fname"]="$actual_sha"
               else
                 echo "تحذير: SHA1 غير متطابق لـ $fname"
-                echo "المتوقع: $sha"
+                echo "المتوقع: $expected_sha"
                 echo "الفعلي:   $actual_sha"
               fi
             else
-              echo "تحذير: $fname غير موجود"
+              echo "تحذير: $fname غير موجود في $src_path"
             fi
           done
           
           # إنشاء Android.mk للـ radio
-          cat > "vendor/$VENDOR/radio/Android.mk" <<'EOF'
+          cat > "$ROOT/vendor/xiaomi/spinel/radio/Android.mk" <<'EOF'
 # تلقائيًا تم إنشاؤه بواسطة CI. لا تقم بالتعديل.
 
 EOF
           for fname in "${!fw_shas[@]}"; do
-            sha="${fw_shas[$fname]}"
-            if [[ -n "$sha" ]]; then
-              echo "\$(call add-radio-file-sha1-checked,$fname,$sha)" >> "vendor/$VENDOR/radio/Android.mk"
-            else
-              echo "\$(call add-radio-file,$fname)" >> "vendor/$VENDOR/radio/Android.mk"
-            fi
+            actual_sha="${fw_shas[$fname]}"
+            echo "(call add-radio-file-sha1-checked,$fname,$actual_sha)" >> "$ROOT/vendor/xiaomi/spinel/radio/Android.mk"
           done
 
-      - name: إنشاء BoardConfigVendor.mk
+      - name: التأكد من استكامل vendor tree
         run: |
-          DEVICE="$DEVICE"
+          ROOT="$GITHUB_WORKSPACE/root"
           VENDOR="$VENDOR"
-          cd "$WORKSPACE/android_device_xiaomi_spinel"
-          
-          cat > "device/$DEVICE/BoardConfigVendor.mk" <<EOF
-#
-# تلقائيًا تم إنشاؤه بواسطة CI. لا تقم بالتعديل.
-#
-
-AB_OTA_PARTITIONS += \\
-    dpm \\
-    gz \\
-    lk \\
-    mcupm \\
-    md1img \\
-    pi_img \\
-    preloader_raw \\
-    scp \\
-    spmfw \\
-    sspm \\
-    tee
-EOF
-
-      - name: دمج tanzanite-vendor.mk (هيكل vendor tree القياسي)
-        run: |
-          DEVICE="$DEVICE"
-          VENDOR="$VENDOR"
-          cd "$WORKSPACE/android_device_xiaomi_spinel"
-          
-          mkdir -p "vendor/$VENDOR"
-          
-          # التأكد من وجود Android.mk في vendor/$VENDOR/radio
-          if [[ ! -f "vendor/$VENDOR/radio/Android.mk" ]]; then
-            echo "# تلقائيًا تم إنشاؤه بواسطة CI. لا تقم بالتعديل." > "vendor/$VENDOR/radio/Android.mk"
+          echo ">>> هيكل vendor tree:"
+          find "$ROOT/vendor/xiaomi/spinel" -maxdepth 1 -type d
+          if [[ -f "$ROOT/vendor/xiaomi/spinel/spinel-vendor.mk" ]]; then
+            echo ">>> spinel-vendor.mk موجود"
           fi
-          
-          # دمج tanzanite-vendor.mk
-          cat > "vendor/$VENDOR/tanzanite-vendor.mk" <<'EOF'
-#
-# تلقائيًا تم إنشاؤه بواسطة CI. لا تقم بالتعديل.
-#
-
-PRODUCT_SOONG_NAMESPACES += \\
-    vendor/xiaomi/spinel
-
-PRODUCT_COPY_FILES += \\
-EOF
-          
-          if [[ -f "proprietary-files.txt" ]]; then
-            grep -v '^#' proprietary-files.txt | while read -r line; do
-              [[ -z "$line" ]] && continue
-              src_path="vendor/$VENDOR/${line#vendor/xiaomi/spinel/}"
-              dst_path="\$${TARGET_COPY_OUT_VENDOR}etc/${line#vendor/xiaomi/spinel/}"
-              echo "    $src_path:\$${dst_path}" >> "vendor/$VENDOR/tanzanite-vendor.mk"
-            done
-          fi
-          
-          cat >> "vendor/$VENDOR/tanzanite-vendor.mk" <<'EOF'
-
-EOF
-
-      - name: إعداد .gitattributes لأقساط الـ LFS
-        run: |
-          DEVICE="$DEVICE"
-          VENDOR="$VENDOR"
-          cd "$WORKSPACE/android_device_xiaomi_spinel"
-          
-          cat > .gitattributes <<'EOF'
-radio/* filter=lfs diff=lfs merge=lfs -text
-EOF
+          ls -la "$ROOT/vendor/xiaomi/spinel/radio/"
 
       - name: Commit والنشر إلى reopository vendor
         run: |
-          DEVICE="$DEVICE"
-          VENDOR="$VENDOR"
-          cd "$WORKSPACE/android_device_xiaomi_spinel"
+          ROOT="$GITHUB_WORKSPACE/root"
+          cd "$ROOT/device/xiaomi/spinel"
           
           git add .
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           git commit -m "بناء الـ vendor من ROM الـ stock لـ VPGMIXM (OS2.0.212.0)
 
-- أقساط الـ bootloader المستخرجة من ROM الـ stock Fastboot (lk.img، preloader_raw.img، scp.img، spmfw.img، sspm.img، mcupm.img، pi_img.img، dpm.img، gz.img)
-- دمج الـ blobs من GitLab dump ($DUMP_SHA) في vendor/$VENDOR/proprietary/
-- إنشاء BoardConfigVendor.mk و tanzanite-vendor.mk
+- أقساط البوتلودر المستخرجة من ROM الـ stock Fastboot (lk.img، preloader_raw.img، scp.img، spmfw.img، sspm.img، mcupm.img، pi_img.img، dpm.img، gz.img)
+- دمج الـ blobs من GitLab dump في vendor/xiaomi/spinel/proprietary/
+- إنشاء BoardConfigVendor.mk و spinel-vendor.mk
 - الطابع الزمني: $TIMESTAMP
 
 Co-authored-by: openhands <openhands@all-hands.dev>"
           
           git remote add vendor https://github.com/mkvenompro/proprietary_vendor_xiaomi_spinel.git
-          git push vendor lineage=23.2
+          git push vendor lineage-23.2
           
           echo "✅ تم الانتهاء! الناتج موجود في: https://github.com/mkvenompro/proprietary_vendor_xiaomi_spinel/tree/lineage-23.2"
