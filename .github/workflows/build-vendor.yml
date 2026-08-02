@@ -31,7 +31,7 @@ on:
       device_tree_ref:
         description: "Branch/tag/ref of the device tree repo"
         required: true
-        default: "lineage=23.2"
+        default: "lineage-23.2"
       extract_utils_ref:
         description: "Branch/tag/ref of LineageOS/android_tools_extract-utils"
         required: true
@@ -64,6 +64,7 @@ jobs:
           repository: ${{ github.event.inputs.device_tree_repo }}
           ref: ${{ github.event.inputs.device_tree_ref }}
           path: device/xiaomi/spinel
+          fetch-depth: 0
 
       - name: Checkout extract_utils (extract-files.py's python module)
         uses: actions/checkout@v4
