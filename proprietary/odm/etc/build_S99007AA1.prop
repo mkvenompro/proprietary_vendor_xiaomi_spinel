@@ -1,0 +1,13 @@
+
+ro.product.brand_for_attestation=Redmi
+ro.product.name_for_attestation=spinel_global
+ro.product.device_for_attestation=spinel
+ro.product.model_for_attestation=2510DRA23G
+ro.product.manufacturer_for_attestation=
+ro.product.odm.brand=Redmi
+ro.product.odm.name=spinel_global
+ro.product.odm.device=spinel
+ro.odm.build.fingerprint=Redmi/spinel_global/spinel:15/AP3A.240905.015.A2/OS2.0.212.0.VPGMIXM:user/release-keys
+ro.product.odm.model=2510DRA23G
+ro.product.odm.marketname=REDMI Note 15
+

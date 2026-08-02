@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+listeners is a statues set,if corresponding position is 1, that mean reg this listener.
+    Now, contain the listener is:
+    receiver,wifi_spot,bluetooth,bluetooth_pan,sarsensor1,sarsensor2,mcc,wifi,cable,hall,usb
+    1: need to reg, 0 : don`t reg
+    like for J18 device, listeners that need to reg is:  11111111110
+    like for J3S device, listeners that need to reg is:  11111111100
+    like for J1/J2 device, listeners that need to reg is 11111011000
+dsiMap：
+    1. F mean NA,the other state is corresponding listener value.
+    2. wifi_spot,bluetooth,bluetooth_pan is one state: hotSpot.
+    receiver,hotSpot,sarsensor1,sarsensor2,mcc,wifi,cable,hall,usb
+    like for J18 device:
+        DSI1: 10FF1F00
+        DSI2: 10FF2F00,10FF3F00 == 10FF4F00
+        DSI3: 0020FF00
+        DSI4: 00102F00,00103F00 == 00104F00
+        an so on
+-->
+<SarDsiConfig>
+    <!-- use for sar uncouple framework -->
+    <sarVersion>2</sarVersion>
+
+
+    <!-- only use for GL --> 
+    <deviceSarConfig device_name="spinel">
+        <prop prop_name="ro.boot.hwc">Global</prop>
+        <!-- receiver,hotSpot(wifi_spot,(bluetooth,bluetooth_pan)),sarsensor1,sarsensor2,mcc,wifi,cable,hall,usb,lab -->
+        <listeners>1111110000010000001</listeners>
+        <simMccList>001,002,432,630,629,450,404,405,406,429,413,470,716,712,732,730,748,744,736,714,704,370,722,740,706,708,710</simMccList>
+        <!-- receiver,hotSpot(wifi_spot,(bluetooth,bluetooth_pan)),sarsensor1,sarsensor2,lab -->
+        <dsimap value="10FF0F">1</dsimap>
+        <dsimap value="10FF10">1</dsimap>
+        <dsimap value="00100F">2</dsimap>
+        <dsimap value="001010">2</dsimap>
+        <dsimap value="00F10F">3</dsimap>
+        <dsimap value="00F110">3</dsimap>
+        <dsimap value="00000F">4</dsimap>
+        <dsimap value="000010">4</dsimap>
+        <dsimap value="F1FF0F">5</dsimap>
+        <dsimap value="F1FF10">5</dsimap>
+        <dsimap value="FFFF11">6</dsimap>
+    </deviceSarConfig>
+
+    <!-- default configuration -->
+    <deviceSarConfig device_name="spinel">
+        <prop prop_name="ro.boot.hwc">default</prop>
+        <prop prop_name="ro.product.mod_device">default</prop>
+        <!-- receiver,hotSpot(wifi_spot,(bluetooth,bluetooth_pan)),sarsensor1,sarsensor2,mcc,wifi,cable,hall,usb,lab -->
+        <listeners>1111110000010000001</listeners>
+        <simMccList>001,002,432,630,629,450,404,405,406,429,413,470,716,712,732,730,748,744,736,714,704,370,722,740,706,708,710</simMccList>
+        <!-- receiver,hotSpot(wifi_spot,(bluetooth,bluetooth_pan)),sarsensor1,sarsensor2,lab -->
+        <dsimap value="10FF0F">1</dsimap>
+        <dsimap value="10FF10">1</dsimap>
+        <dsimap value="00100F">2</dsimap>
+        <dsimap value="001010">2</dsimap>
+        <dsimap value="00F10F">3</dsimap>
+        <dsimap value="00F110">3</dsimap>
+        <dsimap value="00000F">4</dsimap>
+        <dsimap value="000010">4</dsimap>
+        <dsimap value="F1FF0F">5</dsimap>
+        <dsimap value="F1FF10">5</dsimap>
+        <dsimap value="FFFF11">6</dsimap>
+    </deviceSarConfig>
+</SarDsiConfig>

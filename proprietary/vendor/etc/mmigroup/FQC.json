@@ -1,0 +1,111 @@
+{
+  "itemConfig": [
+    {
+      "showName": "VersionInfo"
+    },
+    {
+      "showName": "SimCard_HotPlug"
+    },
+    {
+      "showName": "Sdcard_Intent"
+    },
+    {
+      "showName": "KeyPad"
+    },
+    {
+      "showName": "TpOpenShort"
+    },
+    {
+        "showName": "LCD"
+    },
+    {
+      "showName": "TouchScreen"
+    },
+    {
+      "showName": "MainCamera"
+    },
+    {
+      "showName": "FrontCamera"
+    },
+    {
+      "showName": "LightTEST"
+    },
+    {
+      "showName": "Charge"
+    },
+    {
+      "showName": "WlanAP"
+    },
+    {
+      "showName": "WlanAddress"
+    },
+    {
+      "showName": "BluetoothDevice"
+    },
+    {
+      "showName": "BluetoothAddress"
+    },
+    {
+      "showName": "GPS"
+    },
+    {
+      "showName": "OTG"
+    },
+    {
+      "showName": "Magnetic"
+    },
+    {
+      "showName": "Accelerometer",
+        "paramconfig": {
+            "support_calibrate": false
+        }
+    },
+    {
+      "showName": "Gyroscope"
+    },
+    {
+      "showName": "Optical"
+    },
+    {
+      "showName": "Proximity"
+    },
+
+    {
+      "showName": "HeadSet"
+    },
+    {
+      "showName": "fingerprint_enroltest"
+    },
+    {
+      "showName": "Vibrator",
+      "paramconfig": {
+        "is_auto_vibrate": false
+      }
+    },
+    {
+      "showName": "NFC"
+    },
+    {
+      "showName": "Sar"
+    },
+    {
+      "showName": "SIMCardTray"
+    },
+    {
+      "showName": "TopSpeaker"
+    },
+    {
+      "showName": "BottomSpeaker"
+    },
+    {
+      "showName": "Receiver"
+    },
+    {
+      "showName": "MainMicToHeadPhone"
+    },
+    {
+      "showName": "SubMicToHeadPhone"
+    }
+
+  ]
+}

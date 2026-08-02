@@ -1,0 +1,71 @@
+{
+  "itemConfig": [
+    {
+      "showName": "Vibrator"
+    },
+    {
+      "showName": "BottomSpeaker"
+    },
+    {
+      "showName": "fingerprint",
+      "action": "com.mmigroup.action.ThreeAppTest",
+      "support": true,
+      "automatic": false,
+      "paramconfig": {
+        "pkg": "com.goodix.fingerprint.setting",
+        "cls": "com.goodix.fingerprint.setting.CITTestActivity",
+        "req_code":"20000",
+        "testitem_name": "fingerprint_test",
+        "result_passcode": "1",
+        "extra_info": {
+          "model_test": "true"
+        },
+        "auto_exit": false
+      }
+    },
+    {
+      "showName": "MainMicToHeadPhone"
+    },
+    {
+      "showName": "HeadSet"
+    },
+    {
+      "showName": "SimCard_HotPlug"
+    },
+    {
+      "showName": "Sdcard_Intent"
+    },
+    {
+      "showName": "Battery",
+        "paramconfig": {
+          "is_miui_battery": false,
+          "support_afc_charge": false,
+          "support_charge_ic_check": true,
+          "check_usb_is_unplug": true,
+          "is_show_batteryTemperature": true,
+          "support_typec_check": true,
+          "Voltage": {
+                "min": 2500,
+                "max": 4550
+          },
+          "temp": {
+                "min": -20,
+                "max": 800
+          },
+          "ChargerVoltage": {
+                "min": 4600,
+                "max": 4600
+          },
+        "ChargerCurrent": {
+          "min": -9999999,
+          "max": 9999999
+        },
+          "errorBatteryId": [
+          ]
+        }
+    },
+    {
+      "showName": "OTG"
+    }
+  ]
+}

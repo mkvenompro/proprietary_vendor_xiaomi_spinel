@@ -1,0 +1,58 @@
+{
+	"PolicyControlMaskLocal": "1111110",
+	"BootReclaimTarget": [
+		{
+			"MemorySize": 6000000,
+			"MemAvailable": 3800000,
+			"MemFree": 600000,
+			"MaxReclaimPages": 12500,
+			"MaxRefaultRatio": 0.2,
+			"ReservedAnon": 500000,
+			"ReservedCache": 4000000,
+			"MaxCompacted": 1500000,
+			"PollingCount": 30
+		},
+		{
+			"MemorySize": 8000000,
+			"MemAvailable": 4800000,
+			"MemFree": 600000,
+			"MaxReclaimPages": 12500,
+			"MaxRefaultRatio": 0.2,
+			"ReservedAnon": 500000,
+			"ReservedCache": 4000000,
+			"MaxCompacted": 1500000,
+			"PollingCount": 30
+		},
+		{
+			"MemorySize": 12000000,
+			"MemAvailable": 8700000,
+			"MemFree": 800000,
+			"MaxReclaimPages": 12500,
+			"MaxRefaultRatio": 0.2,
+			"ReservedAnon": 500000,
+			"ReservedCache": 4000000,
+			"MaxCompacted": 1500000,
+			"PollingCount": 30
+		}
+        ],
+	"memitem":[
+	],
+	"actionitem": [
+		{
+		"name": "global_reclaim",
+		"path": "/proc/global_reclaim"
+		}
+	],
+	"policy": [
+		{
+		"name":       "screen_off_reclaim",
+		"memitem":    [ "memitem_misc" , "meminfo_MemFree"],
+		"algo":       [ "equal" , "low"],
+		"threshold":  [ "2" , "600000"],
+		"actionitem": [ "global_reclaim", "global_reclaim"],
+		"target":     [ "30012500", "20012500" ],
+		"mem_size":   "",
+		"type":  "1"
+		}
+	]
+}

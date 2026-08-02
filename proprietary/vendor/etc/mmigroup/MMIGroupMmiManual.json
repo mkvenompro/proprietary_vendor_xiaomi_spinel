@@ -1,0 +1,12 @@
+{
+    "itemConfig": [{
+            "showName": "SimCard_HotPlug"
+        },
+        {
+            "showName": "Sdcard_Intent"
+        },
+        {
+            "showName": "LCD"
+        }
+    ]
+}

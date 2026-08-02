@@ -1,0 +1,24 @@
+on boot
+    chmod 0666 /dev/nq-nci
+    chown nfc system /dev/nq-nci
+    mkdir /data/vendor 0777 nfc nfc
+    mkdir /data/vendor/nfc 0777 nfc nfc
+    mkdir /data/vendor/nfc/param 0777 nfc nfc
+#/odm/etc/vintf for o7 nfc one binary
+# P7 S99007AA1-p7   S99007HA1-P7E  S99007OA1-P7L  S99007OA1-P7L
+on early-init && property:ro.boot.board_id=S99007HA1 && property:ro.boot.multisim=dsds
+    setprop ro.boot.product.hardware.sku hcesim_dsds
+on early-init && property:ro.boot.board_id=S99007HA1 && property:ro.boot.multisim=ss
+    setprop ro.boot.product.hardware.sku hcesim_ss
+on early-init && property:ro.boot.board_id=S99007IA1 && property:ro.boot.multisim=dsds
+    setprop ro.boot.product.hardware.sku hcesim_dsds
+on early-init && property:ro.boot.board_id=S99007IA1 && property:ro.boot.multisim=ss
+    setprop ro.boot.product.hardware.sku hcesim_ss
+on early-init && property:ro.boot.board_id=S99007OA1 && property:ro.boot.multisim=dsds
+    setprop ro.boot.product.hardware.sku nonfc_dsds
+on early-init && property:ro.boot.board_id=S99007OA1 && property:ro.boot.multisim=ss
+    setprop ro.boot.product.hardware.sku nonfc_ss
+on early-init && property:ro.boot.board_id=S99007AA1 && property:ro.boot.multisim=dsds
+    setprop ro.boot.product.hardware.sku nonfc_dsds
+on early-init && property:ro.boot.board_id=S99007AA1 && property:ro.boot.multisim=ss
+    setprop ro.boot.product.hardware.sku nonfc_ss

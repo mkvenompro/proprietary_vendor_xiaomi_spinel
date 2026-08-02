@@ -1,0 +1,25 @@
+on post-fs-data
+   mkdir /data/vendor/fpdump
+   chown system system /data/vendor/fpdump
+   chmod 0700 /data/vendor/fpdump
+   mkdir /mnt/vendor/persist/fingerprint 0777 system system
+   mkdir /mnt/vendor/persist/fingerprint/jiiov 0777 system system
+   chown system system /dev/xiaomi-fp
+   chmod 0644 /dev/xiaomi-fp
+   chown system system /sys/class/mi_display/disp-DSI-0/disp_param
+   chmod 0777 /sys/class/mi_display/disp-DSI-0/disp_param
+service vendor.fps_hal /vendor/bin/hw/android.hardware.biometrics.fingerprint@2.1-service-lx
+    # "class hal" causes a race condition on some devices due to files created
+    # in /data. As a workaround, postpone startup until later in boot once
+    # /data is mounted.
+    socket fpsensor_socket stream 0777 system system
+    class late_start
+    user system
+    group system input uhid
+    #writepid /dev/cpuset/system-background/tasks
+on property:vendor.fps_hal.restartimes=max
+    stop vendor.fps_hal
+
+on property:vendor.fp.dummy.dfs=*
+    stop vendor.fps_hal
+    start vendor.fps_hal

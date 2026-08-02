@@ -1,0 +1,99 @@
+{
+  "itemConfig": [
+    {
+      "showName": "SimCard_HotPlug"
+    },
+    {
+      "showName": "Sdcard_Intent"
+    },
+    {
+      "showName": "KeyPad"
+    },
+    {
+      "showName": "LCD",
+      "paramconfig": {
+      "lcd_pic": [
+          "01-P17-W255;120;2047;null;0;2000",
+          "03-P17-R255;120;2047;null;0;2000",
+          "04-P17-G255;120;2047;null;0;2000",
+          "05-P17-B255;120;2047;null;0;2000",
+          "08-P17-guodu;120;25;null;0;2000",
+          "09-P17-guodu;60;25;null;0;2000",
+          "10-P17-L154;120;25;null;0;2000",
+          "11-P17-L154;60;25;null;0;2000",
+          "16-P17-AOD;30;0;null;2;2000",
+          "17-P17-AOD;30;0;null;1;2000",
+          "19-P17-guodu;60;2047;null;0;2000",
+          "20-P17-guodu;120;4095;null;0;2000",
+          "22-P17-border;120;2047;null;0;2000",
+          "23-P17-crosstalk1;120;2047;null;0;2000",
+          "24-P17-W32;60;2047;null;0;2000",
+          "25-P17-L0;60;4095;null;0;2000"
+        ],
+        "lcd_pic2": [
+          "01-P17-W255;120;2047;null;0;2000",
+          "03-P17-R255;120;2047;null;0;2000",
+          "04-P17-G255;120;2047;null;0;2000",
+          "05-P17-B255;120;2047;null;0;2000",
+          "08-P17-guodu;120;25;null;0;2000",
+          "09-P17-guodu;60;25;null;0;2000",
+          "10-P17-L154;120;25;null;0;2000",
+          "11-P17-L154;60;25;null;0;2000",
+          "16-P17-AOD;30;0;null;2;2000",
+          "17-P17-AOD;30;0;null;1;2000",
+          "19-P17-guodu;60;2047;null;0;2000",
+          "20-P17-guodu;120;4095;null;0;2000",
+          "22-P17-border-two;120;2047;null;0;2000",
+          "23-P17-crosstalk1;120;2047;null;0;2000",
+          "24-P17-W32;60;2047;null;0;2000",
+          "25-P17-L0;60;4095;null;0;2000"
+        ],
+        "lcd_pic3": [
+          "01-P17-W255;120;2047;null;0;2000",
+          "03-P17-R255;120;2047;null;0;2000",
+          "04-P17-G255;120;2047;null;0;2000",
+          "05-P17-B255;120;2047;null;0;2000",
+          "08-P17-guodu;120;25;null;0;2000",
+          "09-P17-guodu;60;25;null;0;2000",
+          "10-P17-L154;120;25;null;0;2000",
+          "11-P17-L154;60;25;null;0;2000",
+          "16-P17-AOD;30;0;null;2;2000",
+          "17-P17-AOD;30;0;null;1;2000",
+          "19-P17-guodu;60;2047;null;0;2000",
+          "20-P17-guodu;120;4095;null;0;2000",
+          "22-P17-border-three;120;2047;null;0;2000",
+          "23-P17-crosstalk1;120;2047;null;0;2000",
+          "24-P17-W32;60;2047;null;0;2000",
+          "25-P17-L0;60;4095;null;0;2000"
+        ]
+      }
+    },
+    {
+      "showName": "Magnetic"
+    },
+    {
+      "showName": "Proximity"
+    },
+    {
+      "showName": "HeadSet"
+    },
+    {
+      "showName": "TouchScreen"
+    },
+    {
+      "showName": "fingerprint_enroltest"
+    },
+    {
+	  "showName": "Vibrator",
+	  "paramconfig": {
+		  "is_auto_vibrate": false
+	  }
+	},
+    {
+      "showName": "Sar"
+    },
+    {
+      "showName": "SIMCardTray"
+    }
+  ]
+}

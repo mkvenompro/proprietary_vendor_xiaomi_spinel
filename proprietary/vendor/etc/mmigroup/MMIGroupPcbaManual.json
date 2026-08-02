@@ -1,0 +1,164 @@
+{
+	"itemConfig": [{
+			"showName": "VersionInfo"
+		},
+		{
+			"showName": "SimCard_HotPlug"
+		},
+		{
+			"showName": "Sdcard_Intent"
+		},
+		{
+			"showName": "KeyPad"
+		},
+		{
+			"showName": "LCD",
+			"paramconfig": {
+			"auto_switch": false,
+			"special_backlight_frame_rate":false,
+			"lcd_pic": [
+				"Color_R",
+				"Color_G",
+				"Color_B"
+			]
+		  }
+		},
+		{
+			"showName": "TouchScreen"
+		},
+		{
+			"showName": "MainCamera"
+		},
+		{
+			"showName": "DepthCamera"
+		},
+		{
+			"showName": "FrontCamera"
+		},
+		{
+			"showName": "LightTEST"
+		},
+		{
+            "showName": "Battery",
+			"paramconfig": {
+				"is_miui_battery": false,
+				"support_afc_charge": false,
+				"support_charge_ic_check": true,
+				"check_usb_is_unplug": true,
+				"is_show_batteryTemperature": true,
+				"support_typec_check": true,
+				"Voltage": {
+					"min": 2500,
+					"max": 4530
+				},
+				"temp": {
+					"min": -200,
+					"max": 600
+				},
+				"ChargerVoltage": {
+					"min": 4600,
+					"max": 10000
+				},
+				"ChargerCurrent": {
+					"min": 0,
+					"max": 0
+				},
+				"errorBatteryId": [
+				]
+			}
+		},
+		{
+			"showName": "WlanAP"
+		},
+		{
+			"showName": "Bluetooth"
+		},
+		{
+			"showName": "GPS"
+		},
+		{
+			"showName": "OTG"
+		},
+		{
+			"showName": "Magnetic",
+			"paramconfig": {
+				"support_calibrate": false,
+				"support_draw": false,
+				"support_test": true,
+				"self_calibrate": false
+			}
+		},
+		{
+			"showName": "Accelerometer",
+			"paramconfig": {
+                                "support_calibrate": false,
+				"support_axialresult": true,
+				"support_angle45": false,
+				"support_angleneg45": false,
+				"is_auto_calibrate": false,
+				"support_plus_or_minus_45_degrees_either_pass_through": false,
+				"autoTest": {
+					"support_calibrate": false
+				}
+			}
+		},
+		{
+			"showName": "Gyroscope",
+			"paramconfig": {
+				"support_calibrate": false,
+				"support_test": true,
+				"is_auto_calibrate": false
+			}
+		},
+		{
+			"showName": "Optical"
+		},
+		{
+			"showName": "TopSpeaker"
+		},
+		{
+			"showName": "BottomSpeaker"
+		},
+		{
+			"showName": "Receiver"
+		},
+		{
+			"showName": "MainMicToHeadPhone"
+		},
+		{
+			"showName": "SubMicToHeadPhone"
+		},
+		{
+			"showName": "HeadSet"
+		},
+    {
+      "showName": "fingerprint",
+      "action": "com.mmigroup.action.ThreeAppTest",
+      "support": true,
+      "automatic": false,
+      "paramconfig": {
+        "pkg": "com.goodix.fingerprint.setting",
+        "cls": "com.goodix.fingerprint.setting.CITTestActivity",
+        "req_code":"20000",
+        "testitem_name": "fingerprint_test",
+        "result_passcode": "1",
+        "extra_info": {
+          "model_test": "true"
+        },
+        "auto_exit": false
+      }
+    },
+		{
+			"showName": "Vibrator",
+			"paramconfig": {
+				"is_auto_vibrate": false
+			}
+		},
+		{
+			"showName": "NFC",
+			"paramconfig": {
+				"support_noCardCheck": true
+			}
+		}
+	]
+}

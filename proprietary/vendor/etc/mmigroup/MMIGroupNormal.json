@@ -1,0 +1,187 @@
+{
+    "mmigroupConfig": {
+        "hideDiskMountUi": true
+    },
+    "systemConfig": {
+        "Attestation": false,
+        "Widewine": false,
+        "IFAA_Version": false,
+        "FIDO_Version": false
+    },
+    "itemConfig": [
+        {
+            "showName": "VersionInfo",
+            "paramconfig": {
+                "AddInfo": {
+                    "SecureBoot": "any",
+                    "//TPcolor": "any",
+                    "CPUID": "any",
+                    "TP": "any",
+                    "RPMB": "any",
+                    "CameraInfo": "any",
+                    "BuildNumber": "any",
+                    "BaseBandVersion": "any",
+                    "KernelVersion": "any",
+                    "LCM": "any",
+                    "verifiedbootstate": "green",
+                    "System_Verity": "true"
+                }
+            }
+        },
+        {
+            "showName": "SimCard_HotPlug"
+        },
+        {
+            "showName": "Sdcard_Intent"
+        },
+        {
+            "showName": "KeyPad"
+        },
+        {
+            "showName": "TpOpenShort"
+        },
+        {
+            "showName": "LCD",
+            "paramconfig": {
+                "lcd_pic": [
+                      "01-P17-W255;120;2047;null;0;2000",
+                      "03-P17-R255;120;2047;null;0;2000",
+                      "04-P17-G255;120;2047;null;0;2000",
+                      "05-P17-B255;120;2047;null;0;2000",
+                      "06-P7-crosstalk;120;2047;null;0;2000",
+                      "07-P7-W87;120;2047;null;0;2000",
+                      "18-P17-guodu;120;2047;null;0;2000",
+                      "21-P17-guodu;120;4095;null;0;2000"
+                ],"lcd_pic2": [
+                      "01-P17-W255;120;2047;null;0;2000",
+                      "03-P17-R255;120;2047;null;0;2000",
+                      "04-P17-G255;120;2047;null;0;2000",
+                      "05-P17-B255;120;2047;null;0;2000",
+                      "06-P7-crosstalk;120;2047;null;0;2000",
+                      "07-P7-W87;120;2047;null;0;2000",
+                      "18-P17-guodu;120;2047;null;0;2000",
+                      "21-P17-guodu;120;4095;null;0;2000"
+                ],"lcd_pic3": [
+                      "01-P17-W255;120;2047;null;0;2000",
+                      "03-P17-R255;120;2047;null;0;2000",
+                      "04-P17-G255;120;2047;null;0;2000",
+                      "05-P17-B255;120;2047;null;0;2000",
+                      "06-P7-crosstalk;120;2047;null;0;2000",
+                      "07-P7-W87;120;2047;null;0;2000",
+                      "18-P17-guodu;120;2047;null;0;2000",
+                      "21-P17-guodu;120;4095;null;0;2000"
+                ]
+            }
+        },
+        {
+            "showName": "TouchScreen"
+        },
+        {
+            "showName": "MainCamera"
+        },
+        {
+            "showName": "FrontCamera"
+        },
+        {
+            "showName": "LightTEST"
+        },
+        {
+           "showName": "Charge"
+        },
+        {
+            "showName": "WlanAP"
+        },
+        {
+            "showName": "WlanAddress"
+        },
+        {
+            "showName": "BluetoothDevice"
+        },
+        {
+            "showName": "BluetoothAddress"
+        },
+        {
+            "showName": "GPS"
+        },
+        {
+          "showName": "OTG",
+          "paramconfig": {
+            "support_udisk": true,
+            "is_show_storage": true,
+            "support_typec": true,
+            "support_mouse": true
+          }
+        },    
+        {
+            "showName": "Magnetic"
+        },
+        {
+          "showName": "Accelerometer",
+          "paramconfig": {
+            "support_calibrate": false
+            }
+        },
+        {
+            "showName": "Gyroscope"
+        },
+        {
+            "showName": "Optical"
+        },        
+        {
+          "showName": "Proximity"
+        },
+        {
+            "showName": "HeadSet"
+        },        
+        {
+          "showName": "fingerprint",
+          "action": "com.mmigroup.action.ThreeAppTest",
+          "support": true,
+          "automatic": true,
+          "paramconfig": {
+            "pkg": "com.goodix.fingerprint.setting",
+            "cls": "com.goodix.fingerprint.setting.CITTestActivity",
+            "req_code":"20000",
+            "testitem_name": "fingerprint_test",
+            "result_passcode": "1",
+            "extra_info": {
+              "model_test": "true"
+            },
+            "auto_exit": false
+          }
+        },
+        {
+          "showName": "fingerprint_enroltest"
+        },    
+        {
+            "showName": "Vibrator",
+            "paramconfig": {
+                "is_auto_vibrate": false
+            }
+        },
+        {
+            "showName": "NFC"
+        },
+        {
+            "showName": "Sar"
+        },
+        {
+            "showName": "SIMCardTray"
+        },
+        {
+            "showName": "TopSpeaker"
+        },
+        {
+            "showName": "BottomSpeaker"
+        },
+        {
+            "showName": "Receiver"
+        },
+        {
+            "showName": "MainMicToHeadPhone"
+        },
+        {
+            "showName": "SubMicToHeadPhone"
+        }
+    ]
+}
