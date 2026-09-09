@@ -1,4 +1,4 @@
-name: "🧬 Build LineageOS Vendor Tree • spinel"
+name: 🧬 Build LineageOS Vendor Tree • spinel
 
 on:
   workflow_dispatch:
@@ -10,33 +10,38 @@ env:
   DEVICE: spinel
   VENDOR: xiaomi
 
-  DUMP_REPO: "https://gitlab.com/mkpromvp/dumber-2-mk.git"
-  DUMP_BRANCH: "dump-redmi-spinel-os2.0.212.0.vpgmixm"
+  DUMP_REPO: https://gitlab.com/mkpromvp/dumber-2-mk.git
+  DUMP_BRANCH: dump-redmi-spinel-os2.0.212.0.vpgmixm
 
-  LINEAGE_EXTRACT_UTILS: "lineage-23.2"
+  LINEAGE_EXTRACT_UTILS: lineage-23.2
+
+  WORK_DIR: vendor_work
+  DUMP_DIR: stock_dump
+  EXTRACT_DIR: extract_tree
+  REPORT_DIR: reports
 
 jobs:
   build-vendor:
-    name: "🧬 Generate LineageOS Vendor Tree"
+    name: 🧬 Generate LineageOS Vendor Tree
     runs-on: ubuntu-24.04
 
     steps:
 
-      # ==========================================================
-      # 1. CHECKOUT CURRENT REPOSITORY
-      # ==========================================================
+      # ============================================================
+      # 1. CHECKOUT TARGET REPOSITORY
+      # ============================================================
 
-      - name: "📥 Checkout repository"
+      - name: 📥 Checkout vendor repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.repository.default_branch }}
+          lfs: true
 
-      # ==========================================================
-      # 2. INSTALL DEPENDENCIES
-      # ==========================================================
+      # ============================================================
+      # 2. SYSTEM DEPENDENCIES
+      # ============================================================
 
-      - name: "🛠️ Install dependencies"
+      - name: 🧰 Install dependencies
         shell: bash
         run: |
           set -euo pipefail
@@ -49,399 +54,406 @@ jobs:
             python3 \
             python3-pip \
             python3-venv \
-            python3-dev \
             rsync \
             unzip \
             zip \
             file \
             bc \
-            cpio \
-            lz4 \
+            bison \
+            flex \
+            gperf \
+            build-essential \
+            clang \
+            llvm \
+            patchelf \
+            libxml2-utils \
+            liblz4-tool \
             zstd \
-            xz-utils \
-            gzip \
-            bzip2 \
-            jq \
-            tree \
-            findutils \
-            coreutils \
-            binutils \
-            binutils-aarch64-linux-gnu \
-            elfutils \
-            patchelf
+            lzop \
+            cpio \
+            lzip \
+            xz-utils
 
-          git lfs install
+          git lfs install --system
 
-          echo
-          echo "Python:"
           python3 --version
-
-          echo
-          echo "Git:"
           git --version
+          git lfs version
 
-      # ==========================================================
-      # 3. PREPARE WORKSPACE
-      # ==========================================================
+      # ============================================================
+      # 3. CLEAN WORKSPACE
+      # ============================================================
 
-      - name: "🧹 Prepare workspace"
+      - name: 🧹 Clean workspace
         shell: bash
         run: |
           set -euo pipefail
 
           rm -rf \
-            stock_dump \
-            extract-utils \
-            extraction_tree \
-            vendor_work \
-            reports
+            "$WORK_DIR" \
+            "$DUMP_DIR" \
+            "$EXTRACT_DIR" \
+            "$REPORT_DIR"
 
           mkdir -p \
-            stock_dump \
-            extraction_tree \
-            vendor_work \
-            reports
+            "$WORK_DIR" \
+            "$REPORT_DIR"
 
-      # ==========================================================
-      # 4. DOWNLOAD DUMBER STOCK DUMP
-      # ==========================================================
+      # ============================================================
+      # 4. CLONE STOCK DUMP
+      # ============================================================
 
-      - name: "📦 Clone stock dump"
+      - name: 📦 Clone Xiaomi stock dump
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "=============================================="
-          echo " Xiaomi Redmi Note 15 4G • spinel"
-          echo " HyperOS 2 / Android 15"
-          echo "=============================================="
+          echo "=========================================="
+          echo "📦 Cloning stock dump"
+          echo "=========================================="
+          echo "Repository: $DUMP_REPO"
+          echo "Branch:     $DUMP_BRANCH"
           echo
-
-          echo "Repository:"
-          echo "${DUMP_REPO}"
-
-          echo
-          echo "Branch:"
-          echo "${DUMP_BRANCH}"
-
-          echo
-          echo "Cloning..."
 
           git clone \
-            --depth=1 \
+            --branch "$DUMP_BRANCH" \
             --single-branch \
-            --branch "${DUMP_BRANCH}" \
-            "${DUMP_REPO}" \
-            stock_dump
+            --depth 1 \
+            "$DUMP_REPO" \
+            "$DUMP_DIR"
+
+          cd "$DUMP_DIR"
+
+          git lfs install --local || true
+          git lfs pull || true
 
           echo
-          echo "✓ Dump downloaded"
+          echo "Dump commit:"
+          git rev-parse HEAD
 
           echo
           echo "Dump size:"
-          du -sh stock_dump
-
-      # ==========================================================
-      # 5. VERIFY STOCK DUMP
-      # ==========================================================
-
-      - name: "🔍 Verify stock dump"
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "Checking required dump components..."
-
-          test -d stock_dump/vendor
-          test -f stock_dump/proprietary-files.txt
-
-          echo "✓ vendor/"
-          echo "✓ proprietary-files.txt"
-
-          if [ -d stock_dump/system ]; then
-            echo "✓ system/"
-          fi
-
-          if [ -d stock_dump/system_ext ]; then
-            echo "✓ system_ext/"
-          fi
-
-          if [ -d stock_dump/product ]; then
-            echo "✓ product/"
-          fi
-
-          if [ -d stock_dump/odm_dlkm ]; then
-            echo "✓ odm_dlkm/"
-          fi
-
-          if [ -d stock_dump/vendor_dlkm ]; then
-            echo "✓ vendor_dlkm/"
-          fi
+          du -sh .
 
           echo
           echo "Top-level dump:"
-          find stock_dump \
-            -mindepth 1 \
-            -maxdepth 1 \
-            -printf '%f\n' \
-            | sort
+          find . -maxdepth 1 -mindepth 1 -printf '%f\n' | sort
 
-      # ==========================================================
-      # 6. CLONE OFFICIAL LINEAGE EXTRACT-UTILS
-      # ==========================================================
+      # ============================================================
+      # 5. VERIFY DUMP STRUCTURE
+      # ============================================================
 
-      - name: "🧰 Clone LineageOS extract-utils"
+      - name: 🔎 Verify stock dump
         shell: bash
         run: |
           set -euo pipefail
 
+          echo "=========================================="
+          echo "🔎 Verifying stock dump"
+          echo "=========================================="
+
+          required=(
+            "proprietary-files.txt"
+            "vendor"
+            "system_ext"
+            "product"
+            "odm_dlkm"
+            "vendor_dlkm"
+          )
+
+          failed=0
+
+          for item in "${required[@]}"; do
+            if [[ ! -e "$DUMP_DIR/$item" ]]; then
+              echo "❌ Missing: $item"
+              failed=1
+            else
+              echo "✅ Found:   $item"
+            fi
+          done
+
+          if [[ "$failed" -ne 0 ]]; then
+            echo
+            echo "❌ Stock dump structure is incomplete."
+            exit 1
+          fi
+
+          echo
+          echo "✅ Stock dump structure looks valid."
+
+      # ============================================================
+      # 6. PREPARE LINEAGE EXTRACT-UTILS TREE
+      # ============================================================
+
+      - name: 🛠️ Prepare Lineage extract-utils
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=========================================="
+          echo "🛠️ Preparing LineageOS extract-utils"
+          echo "=========================================="
+
+          mkdir -p "$EXTRACT_DIR"
+
+          cd "$EXTRACT_DIR"
+
           git clone \
-            --depth=1 \
+            --branch "$LINEAGE_EXTRACT_UTILS" \
             --single-branch \
-            --branch "${LINEAGE_EXTRACT_UTILS}" \
+            --depth 1 \
             https://github.com/LineageOS/android_tools_extract-utils.git \
-            extract-utils
+            tools/extract-utils
 
-          echo
-          echo "extract-utils revision:"
-          git -C extract-utils rev-parse HEAD
+          mkdir -p \
+            "device/$VENDOR/$DEVICE"
 
-          echo
-          echo "extract-utils files:"
-          find extract-utils \
-            -maxdepth 2 \
-            -type f \
-            | sort \
-            | head -100
+          echo "Extract-utils:"
+          git -C tools/extract-utils rev-parse HEAD
 
-      # ==========================================================
-      # 7. PREPARE PROPRIETARY FILE LIST
+      # ============================================================
+      # 7. IMPORT PROPRIETARY FILE LIST
+      # ============================================================
+
+      - name: 📋 Import proprietary-files.txt
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=========================================="
+          echo "📋 Importing proprietary-files.txt"
+          echo "=========================================="
+
+          cp \
+            "$DUMP_DIR/proprietary-files.txt" \
+            "$EXTRACT_DIR/device/$VENDOR/$DEVICE/proprietary-files.txt"
+
+          echo "Original entries:"
+          grep -Ev '^[[:space:]]*(#|$)' \
+            "$EXTRACT_DIR/device/$VENDOR/$DEVICE/proprietary-files.txt" \
+            | wc -l
+
+      # ============================================================
+      # 8. CLEAN + VALIDATE PROPRIETARY LIST
       #
       # IMPORTANT:
-      #   '-' at beginning of Lineage proprietary entry is NOT
-      #   part of the source path.
+      # A leading '-' is Lineage extract-utils syntax.
+      # It MUST NOT be treated as part of the source filename.
       #
       # Example:
       #
-      #   -system_ext/framework/foo.jar
+      # -system_ext/framework/foo.jar
       #
-      # means:
+      # filesystem lookup must use:
       #
-      #   source = system_ext/framework/foo.jar
+      # system_ext/framework/foo.jar
       #
-      # while preserving the '-' in the actual proprietary list.
-      # ==========================================================
+      # but the proprietary-files.txt entry keeps:
+      #
+      # -system_ext/framework/foo.jar
+      # ============================================================
 
-      - name: "🧹 Normalize proprietary-files.txt"
+      - name: 🧹 Clean proprietary file list
         shell: bash
         run: |
           set -euo pipefail
 
-          python3 <<'PY'
-          from pathlib import Path
+          SRC="$EXTRACT_DIR/device/$VENDOR/$DEVICE/proprietary-files.txt"
+          TMP="$EXTRACT_DIR/device/$VENDOR/$DEVICE/proprietary-files.txt.tmp"
 
-          source = Path("stock_dump/proprietary-files.txt")
-          output = Path("vendor_work/proprietary-files.txt")
+          MISSING_REPORT="$REPORT_DIR/missing-proprietary-files.txt"
+          REMOVED_REPORT="$REPORT_DIR/removed-proprietary-files.txt"
 
-          lines = source.read_text(
-              encoding="utf-8",
-              errors="ignore"
-          ).splitlines()
+          mkdir -p "$REPORT_DIR"
 
-          seen = set()
-          output_lines = []
+          : > "$TMP"
+          : > "$MISSING_REPORT"
+          : > "$REMOVED_REPORT"
 
-          for raw in lines:
-              line = raw.strip()
+          original_count=0
+          kept_count=0
+          missing_count=0
 
-              if not line:
-                  continue
+          while IFS= read -r line || [[ -n "$line" ]]; do
 
-              # Keep comments.
-              if line.startswith("#"):
-                  if line not in seen:
-                      seen.add(line)
-                      output_lines.append(line)
-                  continue
+            # Keep blank lines.
+            if [[ -z "${line//[[:space:]]/}" ]]; then
+              echo "$line" >> "$TMP"
+              continue
+            fi
 
-              # Normalize CRLF.
-              line = line.replace("\r", "")
+            # Keep comments.
+            if [[ "$line" =~ ^[[:space:]]*# ]]; then
+              echo "$line" >> "$TMP"
+              continue
+            fi
 
-              # Remove accidental surrounding whitespace.
-              line = line.strip()
+            original_count=$((original_count + 1))
 
-              # Ignore obvious dump metadata.
-              if line in {
-                  "README.md",
-                  "_dump_info.txt",
-                  "all_files.txt",
-                  "all_files.sha1",
-                  "board-info.txt",
-                  "ikconfig",
-                  "kallsyms.txt",
-                  "proprietary-files.sha1",
-              }:
-                  continue
+            # Remove CR if source list came from Windows.
+            line="${line%$'\r'}"
 
-              # Boot/recovery/dtbo images are not proprietary vendor
-              # blobs and must not become vendor/xiaomi/spinel files.
-              check = line.lstrip("-")
+            # Preserve the Lineage '-' marker.
+            marker=""
 
-              source_path = check.split(":", 1)[0]
-              source_path = source_path.split("|", 1)[0]
-              source_path = source_path.lstrip("/")
+            if [[ "$line" == -* ]]; then
+              marker="-"
+              lookup_line="${line#-}"
+            else
+              lookup_line="$line"
+            fi
 
-              if source_path.endswith(".img"):
-                  continue
+            # Strip SHA1 part.
+            lookup_line="${lookup_line%%|*}"
 
-              # Ignore whole partition image references.
-              if source_path in {
-                  "boot.img",
-                  "vendor_boot.img",
-                  "recovery.img",
-                  "dtbo.img",
-                  "vbmeta.img",
-              }:
-                  continue
+            # Source path is before optional destination ':'
+            source="${lookup_line%%:*}"
 
-              # Keep Lineage's '-' marker intact.
-              #
-              # This is important:
-              #
-              # -foo/bar.so
-              #
-              # is NOT equivalent to:
-              #
-              # foo/bar.so
-              #
-              # The marker has meaning to extract-utils.
-              if line not in seen:
-                  seen.add(line)
-                  output_lines.append(line)
+            # Normalize leading './'
+            source="${source#./}"
 
-          output.write_text(
-              "\n".join(output_lines) + "\n",
-              encoding="utf-8"
-          )
+            # Reject absolute paths.
+            if [[ "$source" == /* ]]; then
+              echo "$line" >> "$REMOVED_REPORT"
+              echo "absolute-path: $line" >> "$MISSING_REPORT"
+              missing_count=$((missing_count + 1))
+              continue
+            fi
 
-          print("Original entries:", len(lines))
-          print("Clean entries   :", len(output_lines))
-          PY
+            source_path="$DUMP_DIR/$source"
+
+            # ======================================================
+            # EXISTENCE CHECK
+            # ======================================================
+
+            if [[ -e "$source_path" ]]; then
+              echo "$line" >> "$TMP"
+              kept_count=$((kept_count + 1))
+              continue
+            fi
+
+            # ======================================================
+            # OPTIONAL SYMLINK CHECK
+            # ======================================================
+
+            if [[ -L "$source_path" ]]; then
+              echo "$line" >> "$TMP"
+              kept_count=$((kept_count + 1))
+              continue
+            fi
+
+            # ======================================================
+            # MISSING SOURCE
+            # ======================================================
+
+            echo "$line" >> "$MISSING_REPORT"
+
+            missing_count=$((missing_count + 1))
+
+          done < "$SRC"
+
+          mv "$TMP" "$SRC"
+
+          {
+            echo "Original entries : $original_count"
+            echo "Kept entries     : $kept_count"
+            echo "Removed/missing  : $missing_count"
+          } | tee "$REPORT_DIR/proprietary-list-summary.txt"
 
           echo
-          echo "Final proprietary list:"
-          wc -l vendor_work/proprietary-files.txt
+          echo "=========================================="
+          echo "First missing sources:"
+          echo "=========================================="
+
+          if [[ -s "$MISSING_REPORT" ]]; then
+            sed -n '1,100p' "$MISSING_REPORT"
+          else
+            echo "None"
+          fi
 
           echo
-          echo "First entries:"
-          head -40 vendor_work/proprietary-files.txt
+          echo "=========================================="
+          echo "First proprietary entries:"
+          echo "=========================================="
 
-      # ==========================================================
-      # 8. VALIDATE SOURCES CORRECTLY
+          sed -n '1,40p' "$SRC"
+
+          echo
+          echo "=========================================="
+          echo "Final entry count:"
+          echo "=========================================="
+
+          grep -Ev '^[[:space:]]*(#|$)' "$SRC" | wc -l
+
+          # IMPORTANT:
+          # Do NOT fail here.
+          #
+          # Missing files are already removed from the list.
+          # They are preserved in the report for later inspection.
+
+      # ============================================================
+      # 9. REMOVE KNOWN STOCK-ONLY NON-VENDOR ARTIFACTS
       #
-      # Strip '-' ONLY for filesystem lookup.
-      # DO NOT strip it from proprietary-files.txt.
-      # ==========================================================
+      # Settings.apk is explicitly missing from this Dumber dump.
+      # We also protect against it appearing later through LFS.
+      #
+      # We do NOT remove all system_ext content because MediaTek
+      # hardware services may legitimately live there.
+      # ============================================================
 
-      - name: "🔎 Validate proprietary sources"
+      - name: 🧹 Remove known non-vendor stock applications
         shell: bash
         run: |
           set -euo pipefail
 
-          python3 <<'PY'
-          from pathlib import Path
+          LIST="$EXTRACT_DIR/device/$VENDOR/$DEVICE/proprietary-files.txt"
+          REPORT="$REPORT_DIR/known-stock-apps-removed.txt"
 
-          dump = Path("stock_dump")
-          prop = Path("vendor_work/proprietary-files.txt")
+          : > "$REPORT"
 
-          missing = []
-          checked = 0
+          tmp="${LIST}.tmp"
 
-          for raw in prop.read_text(
-              encoding="utf-8",
-              errors="ignore"
-          ).splitlines():
+          while IFS= read -r line || [[ -n "$line" ]]; do
+            normalized="${line#-}"
+            source="${normalized%%:*}"
+            source="${source%%|*}"
 
-              line = raw.strip()
+            remove="false"
 
-              if not line:
-                  continue
+            case "$source" in
+              system_ext/priv-app/Settings/Settings.apk)
+                remove="true"
+                ;;
+            esac
 
-              if line.startswith("#"):
-                  continue
+            if [[ "$remove" == "true" ]]; then
+              echo "$line" >> "$REPORT"
+              continue
+            fi
 
-              checked += 1
+            echo "$line" >> "$tmp"
+          done < "$LIST"
 
-              # IMPORTANT:
-              # '-' is Lineage metadata, not part of the path.
-              lookup = line.lstrip("-")
+          mv "$tmp" "$LIST"
 
-              # Remove SHA1.
-              lookup = lookup.split("|", 1)[0]
+          if [[ -s "$REPORT" ]]; then
+            echo "Removed known stock-only entries:"
+            cat "$REPORT"
+          else
+            echo "No known stock-only entries required removal."
+          fi
 
-              # Extract source side.
-              source = lookup.split(":", 1)[0]
+      # ============================================================
+      # 10. CREATE EXTRACT-FILES.PY
+      # ============================================================
 
-              source = source.lstrip("/")
-
-              # Ignore image entries just in case.
-              if source.endswith(".img"):
-                  continue
-
-              path = dump / source
-
-              if not path.exists():
-                  missing.append(
-                      f"{source}\t(from: {line})"
-                  )
-
-          print("Checked:", checked)
-          print("Missing:", len(missing))
-
-          if missing:
-              Path(
-                  "reports/missing-files.txt"
-              ).write_text(
-                  "\n".join(missing) + "\n",
-                  encoding="utf-8"
-              )
-
-              print()
-              print("First missing files:")
-
-              for item in missing[:100]:
-                  print(item)
-
-              raise SystemExit(
-                  "ERROR: proprietary-files.txt contains missing sources."
-              )
-
-          print()
-          print("✓ Every proprietary source exists in dump")
-          PY
-
-      # ==========================================================
-      # 9. CREATE EXTRACTION TREE
-      # ==========================================================
-
-      - name: "🌳 Prepare extraction tree"
+      - name: 🐍 Create extract-files.py
         shell: bash
         run: |
           set -euo pipefail
 
-          mkdir -p \
-            extraction_tree/tools
-
-          cp \
-            vendor_work/proprietary-files.txt \
-            extraction_tree/proprietary-files.txt
-
-          cp -a \
-            extract-utils \
-            extraction_tree/tools/extract-utils
-
-          cat > extraction_tree/extract-files.py <<'PY'
-          #!/usr/bin/env -S PYTHONPATH=./tools/extract-utils python3
+          cat > "$EXTRACT_DIR/device/$VENDOR/$DEVICE/extract-files.py" <<'PY'
+          #!/usr/bin/env -S PYTHONPATH=../../../tools/extract-utils python3
 
           from extract_utils.main import (
               ExtractUtils,
@@ -451,8 +463,7 @@ jobs:
           module = ExtractUtilsModule(
               "spinel",
               "xiaomi",
-              add_firmware_proprietary_file=True,
-              check_elf=True,
+              check_elf=False,
           )
 
           if __name__ == "__main__":
@@ -460,503 +471,515 @@ jobs:
               utils.run()
           PY
 
-          chmod +x \
-            extraction_tree/extract-files.py
+          chmod +x "$EXTRACT_DIR/device/$VENDOR/$DEVICE/extract-files.py"
 
-          echo
-          echo "Extraction script:"
-          cat extraction_tree/extract-files.py
+          echo "Created:"
+          cat "$EXTRACT_DIR/device/$VENDOR/$DEVICE/extract-files.py"
 
-      # ==========================================================
-      # 10. RUN OFFICIAL EXTRACT-UTILS
-      # ==========================================================
+      # ============================================================
+      # 11. SANITY CHECK PYTHON IMPORTS
+      # ============================================================
 
-      - name: "📦 Extract proprietary blobs"
+      - name: 🐍 Test extract-utils import
         shell: bash
         run: |
           set -euo pipefail
 
-          cd extraction_tree
+          cd "$EXTRACT_DIR"
 
-          echo "=============================================="
-          echo " Running LineageOS extract-utils"
-          echo "=============================================="
-          echo
+          PYTHONPATH="$PWD/tools/extract-utils" \
+            python3 - <<'PY'
+          from extract_utils.main import ExtractUtils, ExtractUtilsModule
 
-          ./extract-files.py \
-            "${GITHUB_WORKSPACE}/stock_dump"
-
-          echo
-          echo "✓ Extraction finished"
-
-      # ==========================================================
-      # 11. FIND GENERATED TREE
-      # ==========================================================
-
-      - name: "📂 Find generated vendor tree"
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [ ! -d \
-            "extraction_tree/vendor/xiaomi/spinel"
-          ]; then
-
-            echo "ERROR:"
-            echo "vendor/xiaomi/spinel was not generated."
-
-            echo
-            echo "Generated vendor directories:"
-
-            find extraction_tree/vendor \
-              -maxdepth 4 \
-              -type d \
-              2>/dev/null \
-              | sort \
-              || true
-
-            exit 1
-          fi
-
-          echo "✓ vendor/xiaomi/spinel exists"
-
-          du -sh \
-            extraction_tree/vendor/xiaomi/spinel
-
-          find \
-            extraction_tree/vendor/xiaomi/spinel \
-            -type f \
-            | wc -l
-
-      # ==========================================================
-      # 12. REMOVE ONLY EXTRACTION JUNK
-      # ==========================================================
-
-      - name: "🧹 Clean generated tree"
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          TREE="extraction_tree/vendor/xiaomi/spinel"
-
-          # Python cache
-          find "${TREE}" \
-            -type d \
-            -name "__pycache__" \
-            -prune \
-            -exec rm -rf {} +
-
-          # Python bytecode
-          find "${TREE}" \
-            -type f \
-            \( \
-              -name "*.pyc" \
-              -o -name "*.pyo" \
-            \) \
-            -delete
-
-          # OS junk
-          find "${TREE}" \
-            -type f \
-            \( \
-              -name ".DS_Store" \
-              -o -name "Thumbs.db" \
-            \) \
-            -delete
-
-          echo "✓ Extraction junk removed"
-
-      # ==========================================================
-      # 13. CHECK BROKEN SYMLINKS
-      # ==========================================================
-
-      - name: "🔗 Check symlinks"
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          TREE="extraction_tree/vendor/xiaomi/spinel"
-
-          : > reports/broken-symlinks.txt
-
-          while IFS= read -r -d '' link; do
-
-            if [ ! -e "${link}" ]; then
-              echo "${link}" \
-                >> reports/broken-symlinks.txt
-            fi
-
-          done < <(
-            find "${TREE}" \
-              -type l \
-              -print0
+          module = ExtractUtilsModule(
+              "spinel",
+              "xiaomi",
+              check_elf=False,
           )
 
-          if [ -s reports/broken-symlinks.txt ]; then
-            echo "ERROR: broken symlinks found:"
-            cat reports/broken-symlinks.txt
-            exit 1
-          fi
+          print("ExtractUtils import: OK")
+          print("Device:", module.device)
+          print("Vendor:", module.vendor)
+          print("Device path:", module.device_path)
+          print("Vendor path:", module.vendor_path)
+          PY
 
-          echo "✓ No broken symlinks"
+      # ============================================================
+      # 12. RUN EXTRACTION
+      # ============================================================
 
-      # ==========================================================
-      # 14. CHECK DUPLICATE DESTINATIONS
-      # ==========================================================
-
-      - name: "🔐 Check duplicate destination paths"
+      - name: 🧬 Extract vendor blobs
         shell: bash
         run: |
           set -euo pipefail
 
-          TREE="extraction_tree/vendor/xiaomi/spinel"
+          cd "$EXTRACT_DIR"
 
-          find "${TREE}" \
+          echo "=========================================="
+          echo "🧬 STARTING EXTRACTION"
+          echo "=========================================="
+          echo
+          echo "Device : $DEVICE"
+          echo "Vendor : $VENDOR"
+          echo "Source : ../$DUMP_DIR"
+          echo
+
+          PYTHONPATH="$PWD/tools/extract-utils" \
+            python3 "device/$VENDOR/$DEVICE/extract-files.py" \
+            "../$DUMP_DIR"
+
+      # ============================================================
+      # 13. VERIFY GENERATED VENDOR TREE
+      # ============================================================
+
+      - name: 🔎 Verify generated vendor tree
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VENDOR_TREE="$EXTRACT_DIR/vendor/$VENDOR/$DEVICE"
+
+          echo "=========================================="
+          echo "🔎 Verifying generated vendor tree"
+          echo "=========================================="
+
+          if [[ ! -d "$VENDOR_TREE" ]]; then
+            echo "❌ Vendor tree was not generated."
+            exit 1
+          fi
+
+          required_files=(
+            "Android.bp"
+            "Android.mk"
+            "BoardConfigVendor.mk"
+            "$DEVICE-vendor.mk"
+          )
+
+          failed=0
+
+          for file in "${required_files[@]}"; do
+            if [[ ! -f "$VENDOR_TREE/$file" ]]; then
+              echo "❌ Missing generated file: $file"
+              failed=1
+            else
+              echo "✅ Found: $file"
+            fi
+          done
+
+          if [[ ! -d "$VENDOR_TREE/proprietary" ]]; then
+            echo "❌ Missing proprietary directory."
+            exit 1
+          fi
+
+          if [[ "$failed" -ne 0 ]]; then
+            exit 1
+          fi
+
+          echo
+          echo "Vendor tree size:"
+          du -sh "$VENDOR_TREE"
+
+          echo
+          echo "File count:"
+          find "$VENDOR_TREE" -type f | wc -l
+
+          echo
+          echo "Directory count:"
+          find "$VENDOR_TREE" -type d | wc -l
+
+          echo
+          echo "✅ Vendor tree generated successfully."
+
+      # ============================================================
+      # 14. AUDIT DUPLICATE FILE PATHS
+      # ============================================================
+
+      - name: 🔍 Audit duplicate paths
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VENDOR_TREE="$EXTRACT_DIR/vendor/$VENDOR/$DEVICE"
+
+          echo "=========================================="
+          echo "🔍 Duplicate path audit"
+          echo "=========================================="
+
+          find "$VENDOR_TREE/proprietary" \
             -type f \
             -printf '%P\n' \
             | sort \
             | uniq -d \
-            > reports/duplicate-destinations.txt
+            > "$REPORT_DIR/duplicate-paths.txt"
 
-          if [ -s reports/duplicate-destinations.txt ]; then
-            echo "ERROR: duplicate destination paths:"
-            cat reports/duplicate-destinations.txt
+          if [[ -s "$REPORT_DIR/duplicate-paths.txt" ]]; then
+            echo "⚠️ Duplicate paths found:"
+            cat "$REPORT_DIR/duplicate-paths.txt"
+          else
+            echo "✅ No duplicate paths."
+          fi
+
+      # ============================================================
+      # 15. AUDIT DUPLICATE CONTENT
+      # ============================================================
+
+      - name: 🔍 Audit identical blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VENDOR_TREE="$EXTRACT_DIR/vendor/$VENDOR/$DEVICE"
+
+          echo "=========================================="
+          echo "🔍 Identical-content audit"
+          echo "=========================================="
+
+          find "$VENDOR_TREE/proprietary" \
+            -type f \
+            -print0 \
+            | xargs -0 sha256sum \
+            | sort \
+            > "$REPORT_DIR/all-sha256.txt"
+
+          awk '
+          {
+              hash=$1
+              file=$2
+
+              if (hash == previous_hash) {
+                  if (count == 1) {
+                      print previous_file
+                  }
+
+                  print file
+                  count++
+              } else {
+                  count=1
+              }
+
+              previous_hash=hash
+              previous_file=file
+          }
+          ' "$REPORT_DIR/all-sha256.txt" \
+            > "$REPORT_DIR/identical-content-files.txt"
+
+          if [[ -s "$REPORT_DIR/identical-content-files.txt" ]]; then
+            echo "⚠️ Identical content exists in multiple paths."
+            echo "These files are NOT removed automatically."
+            echo
+            sed -n '1,200p' "$REPORT_DIR/identical-content-files.txt"
+          else
+            echo "✅ No identical-content duplicates."
+          fi
+
+      # ============================================================
+      # 16. AUDIT ELF FILES
+      # ============================================================
+
+      - name: 🔬 Audit ELF blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VENDOR_TREE="$EXTRACT_DIR/vendor/$VENDOR/$DEVICE"
+
+          echo "=========================================="
+          echo "🔬 ELF audit"
+          echo "=========================================="
+
+          ELF_REPORT="$REPORT_DIR/elf-files.txt"
+
+          : > "$ELF_REPORT"
+
+          while IFS= read -r -d '' file; do
+            if file "$file" | grep -qE 'ELF [0-9]+-bit'; then
+              echo "$file" >> "$ELF_REPORT"
+            fi
+          done < <(
+            find "$VENDOR_TREE/proprietary" \
+              -type f \
+              -print0
+          )
+
+          elf_count="$(wc -l < "$ELF_REPORT")"
+
+          echo "ELF files: $elf_count"
+
+          echo
+          echo "First ELF files:"
+          sed -n '1,100p' "$ELF_REPORT"
+
+      # ============================================================
+      # 17. AUDIT SYMLINKS
+      # ============================================================
+
+      - name: 🔗 Audit symlinks
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VENDOR_TREE="$EXTRACT_DIR/vendor/$VENDOR/$DEVICE"
+
+          echo "=========================================="
+          echo "🔗 Symlink audit"
+          echo "=========================================="
+
+          find "$VENDOR_TREE" \
+            -type l \
+            -printf '%P -> %l\n' \
+            | sort \
+            > "$REPORT_DIR/symlinks.txt"
+
+          count="$(wc -l < "$REPORT_DIR/symlinks.txt")"
+
+          echo "Symlink count: $count"
+
+          if [[ "$count" -gt 0 ]]; then
+            sed -n '1,200p' "$REPORT_DIR/symlinks.txt"
+          fi
+
+      # ============================================================
+      # 18. VERIFY PROPRIETARY LIST AGAINST GENERATED TREE
+      # ============================================================
+
+      - name: 🧪 Verify extracted files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          LIST="$EXTRACT_DIR/device/$VENDOR/$DEVICE/proprietary-files.txt"
+          VENDOR_TREE="$EXTRACT_DIR/vendor/$VENDOR/$DEVICE"
+
+          MISSING="$REPORT_DIR/extraction-missing.txt"
+
+          : > "$MISSING"
+
+          checked=0
+          missing=0
+
+          while IFS= read -r line || [[ -n "$line" ]]; do
+
+            if [[ -z "${line//[[:space:]]/}" ]]; then
+              continue
+            fi
+
+            if [[ "$line" =~ ^[[:space:]]*# ]]; then
+              continue
+            fi
+
+            checked=$((checked + 1))
+
+            normalized="${line#-}"
+
+            # Destination is not needed for this check.
+            source="${normalized%%:*}"
+
+            # SHA1 is not part of path.
+            source="${source%%|*}"
+
+            # extract-utils places files under proprietary/
+            # while preserving their original partition path.
+            target="$VENDOR_TREE/proprietary/$source"
+
+            if [[ -e "$target" || -L "$target" ]]; then
+              continue
+            fi
+
+            echo "$line" >> "$MISSING"
+            missing=$((missing + 1))
+
+          done < "$LIST"
+
+          echo "Checked: $checked"
+          echo "Missing: $missing"
+
+          if [[ "$missing" -gt 0 ]]; then
+            echo
+            echo "First missing extracted files:"
+            sed -n '1,100p' "$MISSING"
+
+            echo
+            echo "❌ Extraction verification failed."
             exit 1
           fi
 
-          echo "✓ No duplicate destination paths"
+          echo
+          echo "✅ Every proprietary entry exists in the generated tree."
 
-      # ==========================================================
-      # 15. IDENTICAL BLOB REPORT
-      #
-      # IMPORTANT:
-      # Identical SHA1 does NOT mean one file can safely be removed.
-      # Different paths can be ABI/runtime requirements.
-      # ==========================================================
+      # ============================================================
+      # 19. COPY ONLY THE GENERATED VENDOR TREE
+      # ============================================================
 
-      - name: "🧬 Audit identical blobs"
+      - name: 📦 Stage vendor tree
         shell: bash
         run: |
           set -euo pipefail
 
-          TREE="extraction_tree/vendor/xiaomi/spinel"
+          SOURCE="$EXTRACT_DIR/vendor/$VENDOR/$DEVICE"
+          DEST="$WORK_DIR/vendor/$VENDOR/$DEVICE"
 
-          find "${TREE}" \
-            -type f \
-            -exec sha1sum {} \; \
-            | sort \
-            > reports/blob-sha1.txt
+          rm -rf "$DEST"
 
-          python3 <<'PY'
-          from pathlib import Path
-          from collections import defaultdict
-
-          groups = defaultdict(list)
-
-          for line in Path(
-              "reports/blob-sha1.txt"
-          ).read_text(
-              errors="ignore"
-          ).splitlines():
-
-              if not line.strip():
-                  continue
-
-              sha, path = line.split(None, 1)
-
-              groups[sha].append(path)
-
-          duplicates = {
-              sha: paths
-              for sha, paths in groups.items()
-              if len(paths) > 1
-          }
-
-          out = []
-
-          for sha, paths in sorted(
-              duplicates.items()
-          ):
-              out.append(f"SHA1: {sha}")
-
-              for path in paths:
-                  out.append(f"  {path}")
-
-              out.append("")
-
-          Path(
-              "reports/identical-blobs.txt"
-          ).write_text(
-              "\n".join(out),
-              encoding="utf-8"
-          )
-
-          print(
-              "Identical blob groups:",
-              len(duplicates)
-          )
-          PY
-
-      # ==========================================================
-      # 16. FILE TYPE / ELF REPORT
-      # ==========================================================
-
-      - name: "🔬 Generate ELF report"
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          TREE="extraction_tree/vendor/xiaomi/spinel"
-
-          : > reports/elf-report.txt
-
-          while IFS= read -r -d '' file; do
-
-            if file "${file}" | grep -q "ELF"; then
-
-              {
-                echo "=================================================="
-                echo "FILE: ${file}"
-                echo "=================================================="
-
-                file "${file}"
-
-                readelf -d "${file}" 2>/dev/null \
-                  | grep -E \
-                    "NEEDED|SONAME" \
-                  || true
-
-                echo
-
-              } >> reports/elf-report.txt
-
-            fi
-
-          done < <(
-            find "${TREE}" \
-              -type f \
-              -print0
-          )
-
-      # ==========================================================
-      # 17. CHECK LARGE FILES
-      # ==========================================================
-
-      - name: "📏 Check large files"
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          TREE="extraction_tree/vendor/xiaomi/spinel"
-
-          : > reports/large-files.txt
-
-          while IFS= read -r -d '' file; do
-
-            size="$(stat -c '%s' "${file}")"
-
-            # 90 MiB warning
-            if [ "${size}" -ge \
-              $((90 * 1024 * 1024))
-            ]; then
-
-              printf '%s\t%s\n' \
-                "${size}" \
-                "${file}" \
-                >> reports/large-files.txt
-            fi
-
-          done < <(
-            find "${TREE}" \
-              -type f \
-              -print0
-          )
-
-          if [ -s reports/large-files.txt ]; then
-            echo "WARNING:"
-            echo "Files close to GitHub 100 MiB limit:"
-            cat reports/large-files.txt
-          else
-            echo "✓ No large files detected"
-          fi
-
-      # ==========================================================
-      # 18. GENERATE TREE STATISTICS
-      # ==========================================================
-
-      - name: "📊 Generate statistics"
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          TREE="extraction_tree/vendor/xiaomi/spinel"
-
-          {
-            echo "Device: ${DEVICE}"
-            echo "Vendor: ${VENDOR}"
-            echo
-            echo "Dump:"
-            echo "${DUMP_REPO}"
-            echo
-            echo "Dump branch:"
-            echo "${DUMP_BRANCH}"
-            echo
-            echo "Extract-utils:"
-            git -C extract-utils rev-parse HEAD
-            echo
-            echo "Vendor tree:"
-            du -sh "${TREE}"
-            echo
-            echo "Files:"
-            find "${TREE}" -type f | wc -l
-            echo
-            echo "Directories:"
-            find "${TREE}" -type d | wc -l
-            echo
-            echo "Generated:"
-            date -u '+%Y-%m-%d %H:%M:%S UTC'
-          } > reports/vendor-tree-info.txt
-
-          cat reports/vendor-tree-info.txt
-
-      # ==========================================================
-      # 19. COPY FINAL TREE
-      # ==========================================================
-
-      - name: "📥 Install vendor tree"
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          SOURCE="extraction_tree/vendor/xiaomi/spinel"
-          DEST="vendor/xiaomi/spinel"
-
-          # IMPORTANT:
-          # This is the FIRST point where the existing repository tree
-          # is touched.
-          #
-          # Everything before this step must succeed.
-
-          rm -rf "${DEST}"
-
-          mkdir -p "${DEST}"
+          mkdir -p "$DEST"
 
           rsync -a \
-            "${SOURCE}/" \
-            "${DEST}/"
+            "$SOURCE/" \
+            "$DEST/"
+
+          echo "Staged vendor tree:"
+          du -sh "$DEST"
+
+      # ============================================================
+      # 20. COPY REPORTS
+      # ============================================================
+
+      - name: 📝 Generate final report
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VENDOR_TREE="$WORK_DIR/vendor/$VENDOR/$DEVICE"
+
+          {
+            echo "=========================================="
+            echo "Redmi Note 15 4G — spinel"
+            echo "LineageOS Vendor Tree Report"
+            echo "=========================================="
+            echo
+            echo "Device : $DEVICE"
+            echo "Vendor : $VENDOR"
+            echo "Dump   : $DUMP_REPO"
+            echo "Branch : $DUMP_BRANCH"
+            echo "Utils  : $LINEAGE_EXTRACT_UTILS"
+            echo
+            echo "Vendor tree size:"
+            du -sh "$VENDOR_TREE"
+            echo
+            echo "Files:"
+            find "$VENDOR_TREE" -type f | wc -l
+            echo
+            echo "Directories:"
+            find "$VENDOR_TREE" -type d | wc -l
+            echo
+            echo "Generated files:"
+            find "$VENDOR_TREE" \
+              -maxdepth 1 \
+              -type f \
+              -printf '%f\n' \
+              | sort
+            echo
+            echo "=========================================="
+            echo "Missing stock sources"
+            echo "=========================================="
+            if [[ -s "$REPORT_DIR/missing-proprietary-files.txt" ]]; then
+              cat "$REPORT_DIR/missing-proprietary-files.txt"
+            else
+              echo "None"
+            fi
+            echo
+            echo "=========================================="
+            echo "Extraction missing"
+            echo "=========================================="
+            if [[ -s "$REPORT_DIR/extraction-missing.txt" ]]; then
+              cat "$REPORT_DIR/extraction-missing.txt"
+            else
+              echo "None"
+            fi
+          } > "$REPORT_DIR/final-report.txt"
+
+          cat "$REPORT_DIR/final-report.txt"
+
+      # ============================================================
+      # 21. INSTALL GENERATED TREE INTO REPOSITORY
+      # ============================================================
+
+      - name: 📁 Install vendor tree into repository
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=========================================="
+          echo "📁 Installing vendor/xiaomi/spinel"
+          echo "=========================================="
+
+          rm -rf "vendor/$VENDOR/$DEVICE"
+
+          mkdir -p "vendor/$VENDOR/$DEVICE"
+
+          rsync -a \
+            "$WORK_DIR/vendor/$VENDOR/$DEVICE/" \
+            "vendor/$VENDOR/$DEVICE/"
 
           echo
-          echo "Final vendor tree:"
-          du -sh "${DEST}"
+          echo "Installed tree:"
+          du -sh "vendor/$VENDOR/$DEVICE"
 
           echo
           echo "Files:"
-          find "${DEST}" \
-            -type f \
-            | wc -l
+          find "vendor/$VENDOR/$DEVICE" -type f | wc -l
 
-      # ==========================================================
-      # 20. FINAL SANITY CHECK
-      # ==========================================================
+      # ============================================================
+      # 22. GIT STATUS
+      # ============================================================
 
-      - name: "✅ Final sanity check"
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          TREE="vendor/xiaomi/spinel"
-
-          test -d "${TREE}"
-
-          COUNT="$(
-            find "${TREE}" \
-              -type f \
-              | wc -l
-          )"
-
-          echo "Final file count: ${COUNT}"
-
-          if [ "${COUNT}" -lt 10 ]; then
-            echo "ERROR: vendor tree is suspiciously small."
-            exit 1
-          fi
-
-          echo
-          echo "Final structure:"
-          find "${TREE}" \
-            -maxdepth 2 \
-            -type d \
-            | sort \
-            | head -150
-
-      # ==========================================================
-      # 21. GIT STATUS
-      # ==========================================================
-
-      - name: "📋 Git status"
+      - name: 🔎 Show git status
         shell: bash
         run: |
           set -euo pipefail
 
           git status --short
 
-      # ==========================================================
-      # 22. COMMIT
-      # ==========================================================
+          echo
+          echo "Changed files:"
+          git status --short | sed -n '1,200p'
 
-      - name: "💾 Commit vendor tree"
+      # ============================================================
+      # 23. COMMIT + PUSH
+      # ============================================================
+
+      - name: 🚀 Commit and push vendor tree
         shell: bash
         run: |
           set -euo pipefail
 
-          DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
-
-          git config \
-            user.name \
-            "github-actions[bot]"
-
-          git config \
-            user.email \
-            "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "MKVenomPro"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add \
-            vendor/xiaomi/spinel
+            "vendor/$VENDOR/$DEVICE"
 
           if git diff --cached --quiet; then
-            echo "No changes detected."
+            echo "ℹ️ No changes detected."
             exit 0
           fi
 
           git commit \
-            -m "vendor: xiaomi: spinel: initial proprietary blobs"
+            -m "vendor: xiaomi: spinel: generate LineageOS vendor tree"
 
-      # ==========================================================
-      # 23. PUSH
-      # ==========================================================
+          git push origin HEAD
 
-      - name: "🚀 Push to default branch"
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
-
-          echo "Default branch:"
-          echo "${DEFAULT_BRANCH}"
-
-          git push \
-            origin \
-            "HEAD:${DEFAULT_BRANCH}"
-
-      # ==========================================================
+      # ============================================================
       # 24. UPLOAD REPORTS
-      # ==========================================================
+      # ============================================================
 
-      - name: "📤 Upload reports"
+      - name: 📤 Upload reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: "spinel-vendor-tree-reports"
-          path: reports/
+          name: spinel-vendor-tree-reports
+          path: |
+            reports/
           if-no-files-found: warn
-          retention-days: 30
+
+      # ============================================================
+      # 25. UPLOAD GENERATED VENDOR TREE
+      # ============================================================
+
+      - name: 📦 Upload generated vendor tree
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spinel-vendor-tree
+          path: |
+            vendor/xiaomi/spinel/
+          if-no-files-found: error
