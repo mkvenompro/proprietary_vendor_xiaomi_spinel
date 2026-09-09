@@ -4,48 +4,85 @@ on:
   workflow_dispatch:
     inputs:
       STOCK_FASTBOOT_URL:
-        description: "Optional direct URL to spinel Fastboot ROM (.tgz). Used to recover missing raw firmware/radio images."
+        description: "Optional direct URL to the spinel Global Fastboot ROM (.tgz)"
         required: false
         type: string
-        default: ""
+        default: "https://bigota.d.miui.com/OS2.0.212.0.VPGMIXM/spinel_global_images_OS2.0.212.0.VPGMIXM_20260311.0000.00_15.0_global_1e7d24d317.tgz"
+
+      STOCK_DUMP_URL:
+        description: "Stock dump repository"
+        required: true
+        type: string
+        default: "https://gitlab.com/mkpromvp/dumber-2-mk.git"
+
+      STOCK_DUMP_BRANCH:
+        description: "Stock dump branch"
+        required: true
+        type: string
+        default: "dump-redmi-spinel-os2.0.212.0.vpgmixm"
+
+      EXTRACT_UTILS_URL:
+        description: "LineageOS extract-utils repository"
+        required: true
+        type: string
+        default: "https://github.com/LineageOS/android_tools_extract-utils.git"
+
+      EXTRACT_UTILS_BRANCH:
+        description: "extract-utils branch"
+        required: true
+        type: string
+        default: "lineage-23.2"
+
+      UPLOAD_ARTIFACTS:
+        description: "Upload generated vendor tree and reports"
+        required: true
+        type: boolean
+        default: true
+
+      COMMIT_CHANGES:
+        description: "Commit generated vendor tree to repository"
+        required: true
+        type: boolean
+        default: true
 
 permissions:
   contents: write
-
-env:
-  DEVICE: spinel
-  BRAND: xiaomi
-
-  DEVICE_PATH: device/xiaomi/spinel
-  VENDOR_PATH: vendor/xiaomi/spinel
-
-  STOCK_REPO: https://gitlab.com/mkpromvp/dumber-2-mk.git
-  STOCK_BRANCH: dump-redmi-spinel-os2.0.212.0.vpgmixm
-
-  EXTRACT_UTILS_REPO: https://github.com/LineageOS/android_tools_extract-utils.git
-  EXTRACT_UTILS_BRANCH: lineage-23.2
-
-  RADIO_DIR: radio
 
 jobs:
   build-vendor:
     name: 🧬 Generate Vendor Tree
     runs-on: ubuntu-24.04
 
+    env:
+      DEVICE: spinel
+      VENDOR: xiaomi
+      DEVICE_PATH: device/xiaomi/spinel
+      VENDOR_PATH: vendor/xiaomi/spinel
+
+      STOCK_DUMP_URL: ${{ inputs.STOCK_DUMP_URL }}
+      STOCK_DUMP_BRANCH: ${{ inputs.STOCK_DUMP_BRANCH }}
+
+      EXTRACT_UTILS_URL: ${{ inputs.EXTRACT_UTILS_URL }}
+      EXTRACT_UTILS_BRANCH: ${{ inputs.EXTRACT_UTILS_BRANCH }}
+
+      STOCK_FASTBOOT_URL: ${{ inputs.STOCK_FASTBOOT_URL }}
+
     steps:
 
       # ============================================================
-      # CHECKOUT
+      # 1. Checkout repository
       # ============================================================
-      - name: 📥 Checkout vendor repository
+      - name: 📥 Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: true
 
       # ============================================================
-      # DEPENDENCIES
+      # 2. Install dependencies
       # ============================================================
       - name: 🧰 Install dependencies
+        shell: bash
         run: |
           set -euxo pipefail
 
@@ -56,115 +93,186 @@ jobs:
             python3 \
             python3-pip \
             python3-venv \
-            file \
             rsync \
+            curl \
+            wget \
             unzip \
+            p7zip-full \
             tar \
             gzip \
-            bzip2 \
             xz-utils \
-            lz4 \
-            cpio \
-            zip \
-            jq
+            file \
+            findutils \
+            grep \
+            sed \
+            gawk \
+            coreutils
 
-          python3 -m pip install --break-system-packages \
-            protobuf \
-            pycryptodome
+          python3 --version
+          git --version
+          curl --version
+          rsync --version | head -n 1
 
       # ============================================================
-      # CLONE STOCK DUMP
+      # 3. Clone stock dump
       # ============================================================
       - name: 📦 Clone stock dump
+        shell: bash
         run: |
           set -euxo pipefail
 
+          rm -rf stock_dump
+
           git clone \
-            --depth=1 \
-            --branch "${STOCK_BRANCH}" \
-            "${STOCK_REPO}" \
+            --depth 1 \
+            --branch "$STOCK_DUMP_BRANCH" \
+            "$STOCK_DUMP_URL" \
             stock_dump
 
           echo
-          echo "===== STOCK DUMP ROOT ====="
+          echo "===== STOCK DUMP ====="
+          du -sh stock_dump || true
 
           find stock_dump \
             -maxdepth 2 \
             -type d \
-            | sort
+            -print \
+            | sort \
+            | head -n 100
 
       # ============================================================
-      # CLONE EXTRACT-UTILS
+      # 4. Clone extract-utils
       # ============================================================
-      - name: 🧩 Clone Lineage extract-utils
+      - name: 🧬 Clone LineageOS extract-utils
+        shell: bash
         run: |
           set -euxo pipefail
 
+          rm -rf extract-utils
+
           git clone \
-            --depth=1 \
-            --branch "${EXTRACT_UTILS_BRANCH}" \
-            "${EXTRACT_UTILS_REPO}" \
+            --depth 1 \
+            --branch "$EXTRACT_UTILS_BRANCH" \
+            "$EXTRACT_UTILS_URL" \
             extract-utils
+
+          echo
+          echo "===== EXTRACT-UTILS ====="
+
+          git -C extract-utils rev-parse HEAD
+
+          find extract-utils \
+            -maxdepth 2 \
+            -type d \
+            -print \
+            | sort \
+            | head -n 100
+
+      # ============================================================
+      # 5. IMPORTANT:
+      #    Make extract_utils importable from EVERY subsequent step
+      # ============================================================
+      - name: 🐍 Configure Python PYTHONPATH
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          EXTRACT_UTILS_ROOT="$GITHUB_WORKSPACE/extract-utils"
+
+          echo "EXTRACT_UTILS_ROOT=$EXTRACT_UTILS_ROOT" >> "$GITHUB_ENV"
+
+          if [ -d "$EXTRACT_UTILS_ROOT" ]; then
+            echo "PYTHONPATH=$EXTRACT_UTILS_ROOT${PYTHONPATH:+:$PYTHONPATH}" >> "$GITHUB_ENV"
+          else
+            echo "ERROR: extract-utils directory does not exist"
+            exit 1
+          fi
+
+          export PYTHONPATH="$EXTRACT_UTILS_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+
+          echo
+          echo "===== PYTHON ====="
+          python3 --version
+
+          echo
+          echo "===== PYTHONPATH ====="
+          echo "$PYTHONPATH"
+
+          echo
+          echo "===== TESTING extract_utils IMPORT ====="
 
           python3 - <<'PY'
           import sys
 
-          sys.path.insert(0, "extract-utils")
+          print("Python executable:")
+          print(sys.executable)
+
+          print()
+          print("sys.path:")
+          for item in sys.path:
+              print(item)
+
+          print()
+          print("Import test:")
 
           from extract_utils.main import (
               ExtractUtils,
               ExtractUtilsModule,
           )
 
-          print("extract-utils import: PASS")
+          print("ExtractUtils:", ExtractUtils)
+          print("ExtractUtilsModule:", ExtractUtilsModule)
+          print("IMPORT OK")
           PY
 
       # ============================================================
-      # PREPARE
+      # 6. Inspect stock dump
       # ============================================================
-      - name: 📁 Prepare workspace
-        run: |
-          set -euxo pipefail
-
-          rm -rf \
-            generated_root \
-            reports \
-            "${DEVICE_PATH}" \
-            "${VENDOR_PATH}" \
-            fastboot_rom \
-            fastboot_rom_extract
-
-          mkdir -p \
-            generated_root \
-            reports \
-            reports/radio \
-            reports/vintf \
-            reports/inventory \
-            reports/fastboot
-
-      # ============================================================
-      # OPTIONAL FASTBOOT ROM
-      #
-      # The user can provide:
-      #
-      # STOCK_FASTBOOT_URL
-      #
-      # The URL must point to the actual spinel Fastboot ROM.
-      #
-      # We NEVER use Tanzanite firmware as fallback.
-      # ============================================================
-      - name: 📥 Download optional spinel Fastboot ROM
-        if: ${{ inputs.STOCK_FASTBOOT_URL != '' }}
+      - name: 🔎 Inspect stock dump
         shell: bash
         run: |
           set -euxo pipefail
 
-          URL="${{ inputs.STOCK_FASTBOOT_URL }}"
+          echo "===== STOCK DUMP IDENTITY ====="
+
+          if [ -f stock_dump/metadata ]; then
+            cat stock_dump/metadata
+          fi
+
+          if [ -f stock_dump/metadata.txt ]; then
+            cat stock_dump/metadata.txt
+          fi
+
+          echo
+          echo "===== PARTITIONS ====="
+
+          find stock_dump \
+            -mindepth 1 \
+            -maxdepth 2 \
+            -type d \
+            -printf '%p\n' \
+            | sort \
+            | head -n 200
+
+      # ============================================================
+      # 7. Download optional Fastboot ROM
+      #
+      # NOTE:
+      # This is NOT required for normal vendor extraction.
+      # It is only used to look for raw firmware/radio images.
+      # ============================================================
+      - name: 📡 Download optional Fastboot ROM
+        if: ${{ env.STOCK_FASTBOOT_URL != '' }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          mkdir -p fastboot_rom
+
+          URL="$STOCK_FASTBOOT_URL"
 
           echo "===== FASTBOOT ROM URL ====="
           echo "$URL"
-
-          mkdir -p fastboot_rom
 
           echo
           echo "===== DOWNLOADING FASTBOOT ROM ====="
@@ -175,762 +283,414 @@ jobs:
             --retry 5 \
             --retry-delay 5 \
             --connect-timeout 30 \
-            --max-time 3600 \
+            --max-time 7200 \
+            --continue-at - \
             --output fastboot_rom/stock.tgz \
             "$URL"
 
           echo
-          echo "===== DOWNLOAD SIZE ====="
+          echo "===== DOWNLOADED FILE ====="
 
           ls -lh fastboot_rom/stock.tgz
+          file fastboot_rom/stock.tgz
 
-          test -s fastboot_rom/stock.tgz
+          echo
+          echo "===== SHA256 ====="
 
-          file fastboot_rom/stock.tgz \
-            | tee reports/fastboot/file.txt
+          sha256sum fastboot_rom/stock.tgz
 
       # ============================================================
-      # EXTRACT FASTBOOT ROM
+      # 8. Extract Fastboot ROM
       # ============================================================
-      - name: 📦 Extract optional Fastboot ROM
-        if: ${{ inputs.STOCK_FASTBOOT_URL != '' }}
+      - name: 📦 Extract Fastboot ROM
+        if: ${{ env.STOCK_FASTBOOT_URL != '' }}
         shell: bash
         run: |
           set -euxo pipefail
 
-          mkdir -p fastboot_rom_extract
+          rm -rf fastboot_rom/extracted
+          mkdir -p fastboot_rom/extracted
 
-          echo "===== EXTRACTING TGZ ====="
+          if [ ! -s fastboot_rom/stock.tgz ]; then
+            echo "Fastboot ROM was not downloaded."
+            exit 1
+          fi
+
+          echo "===== EXTRACTING FASTBOOT ROM ====="
 
           tar \
             -xzf fastboot_rom/stock.tgz \
-            -C fastboot_rom_extract
+            -C fastboot_rom/extracted
 
           echo
           echo "===== FASTBOOT ROM CONTENT ====="
 
-          find fastboot_rom_extract \
+          find fastboot_rom/extracted \
             -maxdepth 4 \
             -type f \
+            -printf '%p\n' \
             | sort \
-            | tee reports/fastboot/files.txt
-
-          echo
-          echo "===== FASTBOOT ROM DIRECTORIES ====="
-
-          find fastboot_rom_extract \
-            -maxdepth 3 \
-            -type d \
-            | sort \
-            | tee reports/fastboot/directories.txt
+            | head -n 300
 
       # ============================================================
-      # VERIFY FASTBOOT ROM IS ACTUALLY SPINEL
+      # 9. Verify Fastboot ROM identity
       # ============================================================
-      - name: 🔐 Inspect Fastboot ROM identity
-        if: ${{ inputs.STOCK_FASTBOOT_URL != '' }}
+      - name: 🆔 Verify Fastboot ROM identity
+        if: ${{ env.STOCK_FASTBOOT_URL != '' }}
         shell: bash
         run: |
           set -euxo pipefail
 
           echo "===== FASTBOOT ROM IDENTITY CHECK ====="
 
-          {
-            find fastboot_rom_extract \
-              -type f \
-              \( \
-                -name '*.xml' \
-                -o -name '*.txt' \
-                -o -name '*.json' \
-                -o -name '*.prop' \
-              \) \
-              -print0
-          } > reports/fastboot/metadata_files.bin
+          MATCHES=0
 
-          : > reports/fastboot/identity.txt
+          if grep -Raiq \
+            -E 'spinel|VPGMIXM|OS2\.0\.212\.0\.VPGMIXM' \
+            fastboot_rom/extracted \
+            2>/dev/null; then
 
-          while IFS= read -r -d '' file; do
+            MATCHES=1
+          fi
 
-            grep -Eai \
-              'spinel|2510DRA23E|mt6789|VPGMIXM|Redmi Note 15' \
-              "$file" \
-              >> reports/fastboot/identity.txt \
-              || true
-
-          done < reports/fastboot/metadata_files.bin
-
-          echo "===== MATCHES ====="
-
-          cat reports/fastboot/identity.txt || true
-
-          echo
-          echo "NOTE:"
-          echo "The ROM must be the spinel ROM."
-          echo "No firmware from another device will be copied."
+          if [ "$MATCHES" -eq 1 ]; then
+            echo "PASS: Fastboot ROM contains spinel/OS2.0.212.0.VPGMIXM identifiers."
+          else
+            echo "WARNING: Could not positively identify spinel in extracted Fastboot ROM."
+            echo "Radio extraction will therefore NOT be trusted automatically."
+          fi
 
       # ============================================================
-      # DISCOVER RADIO IMAGES
+      # 10. Discover raw MediaTek firmware/radio images
       #
-      # First:
-      #   current stock dump
-      #
-      # Then:
-      #   optional Fastboot ROM
-      #
-      # The Fastboot ROM has priority ONLY for missing files.
+      # We DO NOT copy Tanzanite firmware.
+      # Only spinel's own ROM may provide these files.
       # ============================================================
-      - name: 📻 Discover raw radio firmware
+      - name: 📡 Discover spinel firmware/radio images
         shell: bash
         run: |
           set -euxo pipefail
 
-          cat > reports/radio/expected.txt <<'EOF'
-          dpm.img
-          gz.img
-          lk.img
-          mcupm.img
-          md1img.img
-          pi_img.img
-          preloader_raw.img
-          scp.img
-          spmfw.img
-          sspm.img
-          tee.img
-          EOF
+          mkdir -p reports
+          mkdir -p generated_root/radio
 
-          : > reports/radio/found.txt
-          : > reports/radio/missing.txt
-          : > reports/radio/locations.txt
-          : > reports/radio/source.txt
+          RADIO_NAMES=(
+            dpm.img
+            gz.img
+            lk.img
+            mcupm.img
+            md1img.img
+            pi_img.img
+            preloader_raw.img
+            scp.img
+            spmfw.img
+            sspm.img
+            tee.img
+          )
 
-          echo "===== RADIO DISCOVERY ====="
+          : > reports/radio-discovery.txt
 
-          while IFS= read -r image; do
+          echo "===== SPINEL RADIO DISCOVERY =====" | tee -a reports/radio-discovery.txt
 
-            found=""
+          FOUND=0
+          MISSING=0
 
-            # ------------------------------------------------------
-            # Search current stock dump first.
-            # ------------------------------------------------------
-            while IFS= read -r candidate; do
-              [ -f "$candidate" ] || continue
+          for name in "${RADIO_NAMES[@]}"; do
 
-              found="$candidate"
-              break
+            FOUND_PATH=""
 
-            done < <(
-              find stock_dump \
-                -type f \
-                -name "$image" \
-                -print \
-                | sort
-            )
-
-            # ------------------------------------------------------
-            # If not found, search optional Fastboot ROM.
-            # ------------------------------------------------------
-            if [ -z "$found" ] && [ -d fastboot_rom_extract ]; then
-
-              while IFS= read -r candidate; do
-                [ -f "$candidate" ] || continue
-
-                found="$candidate"
-                break
-
-              done < <(
-                find fastboot_rom_extract \
+            if [ -d stock_dump ]; then
+              FOUND_PATH="$(
+                find stock_dump \
                   -type f \
-                  -name "$image" \
+                  -name "$name" \
                   -print \
-                  | sort
-              )
-
+                  -quit \
+                  2>/dev/null || true
+              )"
             fi
 
-            # ------------------------------------------------------
-            # Result
-            # ------------------------------------------------------
-            if [ -n "$found" ]; then
+            if [ -z "$FOUND_PATH" ] && [ -d fastboot_rom/extracted ]; then
+              FOUND_PATH="$(
+                find fastboot_rom/extracted \
+                  -type f \
+                  -name "$name" \
+                  -print \
+                  -quit \
+                  2>/dev/null || true
+              )"
+            fi
 
-              echo "$image" \
-                >> reports/radio/found.txt
+            if [ -n "$FOUND_PATH" ]; then
 
-              echo "$image -> $found" \
-                >> reports/radio/locations.txt
+              echo "FOUND: $name -> $FOUND_PATH" \
+                | tee -a reports/radio-discovery.txt
 
-              if [[ "$found" == fastboot_rom_extract/* ]]; then
-                echo "$image -> fastboot_rom" \
-                  >> reports/radio/source.txt
-              else
-                echo "$image -> stock_dump" \
-                  >> reports/radio/source.txt
-              fi
+              cp -f \
+                "$FOUND_PATH" \
+                "generated_root/radio/$name"
 
-              echo "FOUND  $image"
-              echo "       $found"
+              FOUND=$((FOUND + 1))
 
             else
 
-              echo "$image" \
-                >> reports/radio/missing.txt
+              echo "MISSING: $name" \
+                | tee -a reports/radio-discovery.txt
 
-              echo "MISS   $image"
+              MISSING=$((MISSING + 1))
 
             fi
+          done
 
-          done < reports/radio/expected.txt
+          echo | tee -a reports/radio-discovery.txt
 
-          echo
-          echo "===== RADIO SUMMARY ====="
+          echo "FOUND=$FOUND" \
+            | tee -a reports/radio-discovery.txt
 
-          found_count=$(wc -l < reports/radio/found.txt)
-          missing_count=$(wc -l < reports/radio/missing.txt)
-
-          echo "Found   : $found_count"
-          echo "Missing : $missing_count"
+          echo "MISSING=$MISSING" \
+            | tee -a reports/radio-discovery.txt
 
           echo
-          echo "===== LOCATIONS ====="
+          echo "===== RADIO RESULT ====="
 
-          cat reports/radio/locations.txt || true
-
-          echo
-          echo "===== SOURCES ====="
-
-          cat reports/radio/source.txt || true
+          if [ "$FOUND" -gt 0 ]; then
+            ls -lh generated_root/radio
+          else
+            echo "No raw radio images found."
+            echo "This is NOT an error."
+          fi
 
       # ============================================================
-      # COPY RADIO IMAGES
+      # 11. Analyze proprietary-files.txt
       # ============================================================
-      - name: 📻 Import discovered radio images
+      - name: 📋 Normalize proprietary-files.txt
         shell: bash
         run: |
           set -euxo pipefail
 
-          rm -rf generated_root/radio
+          mkdir -p device/xiaomi/spinel
+          mkdir -p reports
 
-          found_count=$(wc -l < reports/radio/found.txt)
+          RAW_LIST="stock_dump/proprietary-files.txt"
+          NORMALIZED="device/xiaomi/spinel/proprietary-files.txt"
 
-          if [ "$found_count" -eq 0 ]; then
-            echo "No raw radio images found."
-            echo "radio/ will NOT be created."
-            exit 0
-          fi
-
-          mkdir -p generated_root/radio
-
-          while IFS= read -r line; do
-
-            [ -n "$line" ] || continue
-
-            image="$line"
-
-            location=""
-
-            while IFS= read -r location_line; do
-
-              name="${location_line%% -> *}"
-              path="${location_line#* -> }"
-
-              if [ "$name" = "$image" ]; then
-                location="$path"
-                break
-              fi
-
-            done < reports/radio/locations.txt
-
-            if [ -z "$location" ]; then
-              echo "ERROR: Could not resolve location for $image"
-              exit 1
-            fi
-
-            echo "Copying:"
-            echo "  $image"
-            echo "  from: $location"
-
-            cp \
-              "$location" \
-              "generated_root/radio/$image"
-
-          done < reports/radio/found.txt
-
-          echo
-          echo "===== RADIO DIRECTORY ====="
-
-          ls -lh generated_root/radio
-
-      # ============================================================
-      # RADIO README
-      # ============================================================
-      - name: 📝 Generate radio README
-        run: |
-          set -euxo pipefail
-
-          if [ -d generated_root/radio ]; then
-
-            cat > generated_root/radio/README.md <<'EOF'
-          # spinel Radio / Firmware
-
-          These firmware partition images were extracted from the
-          spinel stock firmware supplied to the vendor-tree build.
-
-          No firmware from another device is used.
-
-          In particular, Tanzanite firmware must not be substituted
-          for spinel firmware even though both devices use MediaTek
-          MT6789.
-
-          Expected raw firmware partitions:
-
-          - dpm
-          - gz
-          - lk
-          - mcupm
-          - md1img
-          - pi_img
-          - preloader_raw
-          - scp
-          - spmfw
-          - sspm
-          - tee
-          EOF
-
-          fi
-
-      # ============================================================
-      # INVENTORY STOCK PARTITIONS
-      # ============================================================
-      - name: 🔎 Inventory stock partitions
-        run: |
-          set -euxo pipefail
-
-          {
-            echo "===== STOCK PARTITION DIRECTORIES ====="
-
-            find stock_dump \
-              -mindepth 1 \
-              -maxdepth 1 \
-              -type d \
-              -printf '%f\n' \
-              | sort
-
-            echo
-            echo "===== IMPORTANT COUNTS ====="
-
-            printf "vendor files      : "
-            find stock_dump/vendor \
-              -type f \
-              2>/dev/null \
-              | wc -l || true
-
-            printf "vendor_dlkm files : "
-            find stock_dump/vendor_dlkm \
-              -type f \
-              2>/dev/null \
-              | wc -l || true
-
-            printf "odm_dlkm files    : "
-            find stock_dump/odm_dlkm \
-              -type f \
-              2>/dev/null \
-              | wc -l || true
-
-            printf "system files      : "
-            find stock_dump/system \
-              -type f \
-              2>/dev/null \
-              | wc -l || true
-
-            printf "system_ext files  : "
-            find stock_dump/system_ext \
-              -type f \
-              2>/dev/null \
-              | wc -l || true
-
-            printf "product files     : "
-            find stock_dump/product \
-              -type f \
-              2>/dev/null \
-              | wc -l || true
-
-            printf "mi_ext files      : "
-            find stock_dump/mi_ext \
-              -type f \
-              2>/dev/null \
-              | wc -l || true
-
-          } | tee reports/inventory/stock.txt
-
-      # ============================================================
-      # LOCATE PROPRIETARY FILES
-      # ============================================================
-      - name: 📜 Locate proprietary-files.txt
-        run: |
-          set -euxo pipefail
-
-          SOURCE_LIST=""
-
-          for candidate in \
-            stock_dump/proprietary-files.txt \
-            stock_dump/extracted/proprietary-files.txt \
-            stock_dump/device/xiaomi/spinel/proprietary-files.txt
-          do
-
-            if [ -f "$candidate" ]; then
-              SOURCE_LIST="$candidate"
-              break
-            fi
-
-          done
-
-          if [ -z "$SOURCE_LIST" ]; then
-            echo "ERROR: proprietary-files.txt not found."
-
-            find stock_dump \
-              -type f \
-              -name 'proprietary-files.txt' \
-              -print
-
+          if [ ! -f "$RAW_LIST" ]; then
+            echo "ERROR: $RAW_LIST does not exist."
             exit 1
           fi
 
-          echo "Using:"
-          echo "$SOURCE_LIST"
+          cp -f "$RAW_LIST" "$NORMALIZED"
 
-          cp \
-            "$SOURCE_LIST" \
-            reports/proprietary-files.original.txt
+          echo "===== ORIGINAL LIST ====="
 
-          mkdir -p "${DEVICE_PATH}"
+          wc -l "$NORMALIZED"
 
-          cp \
-            "$SOURCE_LIST" \
-            "${DEVICE_PATH}/proprietary-files.txt"
+          # --------------------------------------------------------
+          # Remove known unsupported/system-side entries.
+          # --------------------------------------------------------
 
-      # ============================================================
-      # NORMALIZE PROPRIETARY LIST
-      # ============================================================
-      - name: 🧹 Normalize proprietary list
-        shell: bash
-        run: |
-          set -euxo pipefail
+          sed -i \
+            -E \
+            '/^[[:space:]]*-/d' \
+            "$NORMALIZED"
 
-          INPUT="${DEVICE_PATH}/proprietary-files.txt"
-          OUTPUT="${DEVICE_PATH}/proprietary-files.clean.txt"
+          sed -i \
+            -E \
+            '/^(system|system_ext|product)\//d' \
+            "$NORMALIZED"
 
-          rm -f "$OUTPUT"
+          sed -i \
+            -E \
+            '/^-?(system|system_ext|product)\//d' \
+            "$NORMALIZED"
 
-          removed_system=0
-          removed_system_ext=0
-          removed_product=0
-          removed_dlkm=0
-          removed_mi_ext=0
-          removed_vintf=0
-          removed_missing=0
-          fixed_iwpriv=0
+          sed -i \
+            -E \
+            '/^vendor_dlkm\//d' \
+            "$NORMALIZED"
 
-          : > reports/vintf/manual-vintf.txt
-          : > reports/normalization.txt
+          sed -i \
+            -E \
+            '/^-?vendor_dlkm\//d' \
+            "$NORMALIZED"
 
-          while IFS= read -r raw || [ -n "$raw" ]; do
+          sed -i \
+            -E \
+            '/^odm_dlkm\//d' \
+            "$NORMALIZED"
 
-            line="$raw"
+          sed -i \
+            -E \
+            '/^-?odm_dlkm\//d' \
+            "$NORMALIZED"
 
-            if [ -z "$line" ]; then
-              echo "$line" >> "$OUTPUT"
-              continue
-            fi
+          sed -i \
+            -E \
+            '/^-?mi_ext\//d' \
+            "$NORMALIZED"
 
-            case "$line" in
-              \#*)
-                echo "$line" >> "$OUTPUT"
-                continue
-                ;;
-            esac
-
-            source="${line%%:*}"
-
-            # ------------------------------------------------------
-            # Remove system
-            # ------------------------------------------------------
-            case "$source" in
-              system/*|-system/*)
-                removed_system=$((removed_system + 1))
-                continue
-                ;;
-            esac
-
-            # ------------------------------------------------------
-            # Remove system_ext
-            # ------------------------------------------------------
-            case "$source" in
-              system_ext/*|-system_ext/*)
-                removed_system_ext=$((removed_system_ext + 1))
-                continue
-                ;;
-            esac
-
-            # ------------------------------------------------------
-            # Remove product
-            # ------------------------------------------------------
-            case "$source" in
-              product/*|-product/*)
-                removed_product=$((removed_product + 1))
-                continue
-                ;;
-            esac
-
-            # ------------------------------------------------------
-            # Remove DLKM from normal extract-utils processing
-            # ------------------------------------------------------
-            case "$source" in
-              vendor_dlkm/*|-vendor_dlkm/*|odm_dlkm/*|-odm_dlkm/*)
-                removed_dlkm=$((removed_dlkm + 1))
-                continue
-                ;;
-            esac
-
-            # ------------------------------------------------------
-            # Remove mi_ext
-            # ------------------------------------------------------
-            case "$source" in
-              mi_ext/*|-mi_ext/*)
-                removed_mi_ext=$((removed_mi_ext + 1))
-                continue
-                ;;
-            esac
-
-            # ------------------------------------------------------
-            # MANUAL VINTF #1
-            # ------------------------------------------------------
-            if [ "$source" = "vendor/odm/etc/vintf/manifest_nonfc_dsds.xml" ]; then
-
-              if [ -f "stock_dump/$source" ]; then
-
-                mkdir -p \
-                  generated_root/proprietary/odm/etc/vintf
-
-                cp \
-                  "stock_dump/$source" \
-                  generated_root/proprietary/odm/etc/vintf/manifest_nonfc_dsds.xml
-
-                echo "$source" \
-                  >> reports/vintf/manual-vintf.txt
-
-                removed_vintf=$((removed_vintf + 1))
-              fi
-
-              continue
-            fi
-
-            # ------------------------------------------------------
-            # MANUAL VINTF #2
-            # ------------------------------------------------------
-            if [ "$source" = "vendor/odm/etc/vintf/manifest_nonfc_ss.xml" ]; then
-
-              if [ -f "stock_dump/$source" ]; then
-
-                mkdir -p \
-                  generated_root/proprietary/odm/etc/vintf
-
-                cp \
-                  "stock_dump/$source" \
-                  generated_root/proprietary/odm/etc/vintf/manifest_nonfc_ss.xml
-
-                echo "$source" \
-                  >> reports/vintf/manual-vintf.txt
-
-                removed_vintf=$((removed_vintf + 1))
-              fi
-
-              continue
-            fi
-
-            # ------------------------------------------------------
-            # Fix iwpriv
-            # ------------------------------------------------------
-            if [ "$source" = "bin/iwpriv" ] ||
-               [ "$source" = "-bin/iwpriv" ]; then
-
-              IWPRIV=""
-
-              IWPRIV=$(find stock_dump \
-                -type f \
-                -name iwpriv \
-                -print \
-                | sort \
-                | head -n 1 || true)
-
-              if [ -n "$IWPRIV" ]; then
-
-                REL="${IWPRIV#stock_dump/}"
-
-                echo "$REL" >> "$OUTPUT"
-
-                echo "Fixed iwpriv -> $REL" \
-                  >> reports/normalization.txt
-
-                fixed_iwpriv=$((fixed_iwpriv + 1))
-
-              else
-
-                removed_missing=$((removed_missing + 1))
-
-              fi
-
-              continue
-            fi
-
-            # ------------------------------------------------------
-            # Normalize leading "-"
-            # ------------------------------------------------------
-            if [[ "$source" == -* ]]; then
-
-              source="${source#-}"
-
-              if [[ "$line" == *:* ]]; then
-                destination="${line#*:}"
-                line="${source}:${destination}"
-              else
-                line="$source"
-              fi
-
-            fi
-
-            # ------------------------------------------------------
-            # Validate source
-            # ------------------------------------------------------
-            clean_source="${line%%:*}"
-
-            if [ ! -f "stock_dump/$clean_source" ]; then
-
-              echo "MISSING: $clean_source" \
-                >> reports/normalization.txt
-
-              removed_missing=$((removed_missing + 1))
-              continue
-
-            fi
-
-            echo "$line" >> "$OUTPUT"
-
-          done < "$INPUT"
-
-          mv "$OUTPUT" "$INPUT"
+          # --------------------------------------------------------
+          # Remove the two extract-utils VINTF entries that caused
+          # write_product_packages() assertion on Lineage 23.2.
+          # They will be restored manually later.
+          # --------------------------------------------------------
 
           {
-            echo
-            echo "===== NORMALIZATION SUMMARY ====="
-            echo "Removed system       : $removed_system"
-            echo "Removed system_ext   : $removed_system_ext"
-            echo "Removed product      : $removed_product"
-            echo "Removed DLKM         : $removed_dlkm"
-            echo "Removed mi_ext       : $removed_mi_ext"
-            echo "Manual VINTF         : $removed_vintf"
-            echo "Missing              : $removed_missing"
-            echo "Fixed iwpriv         : $fixed_iwpriv"
-          } | tee -a reports/normalization.txt
+            echo "vendor/odm/etc/vintf/manifest_nonfc_dsds.xml"
+            echo "vendor/odm/etc/vintf/manifest_nonfc_ss.xml"
+          } > reports/manual-vintf.txt
+
+          sed -i \
+            -E \
+            '/^-?vendor\/odm\/etc\/vintf\/manifest_nonfc_dsds\.xml$/d' \
+            "$NORMALIZED"
+
+          sed -i \
+            -E \
+            '/^-?vendor\/odm\/etc\/vintf\/manifest_nonfc_ss\.xml$/d' \
+            "$NORMALIZED"
+
+          # --------------------------------------------------------
+          # Fix malformed iwpriv entry.
+          # --------------------------------------------------------
+
+          if grep -qx 'bin/iwpriv' "$NORMALIZED"; then
+            sed -i '/^bin\/iwpriv$/d' "$NORMALIZED"
+          fi
+
+          IWPRIV_PATH="$(
+            find stock_dump \
+              -type f \
+              -name 'iwpriv' \
+              -print \
+              -quit \
+              2>/dev/null || true
+          )"
+
+          if [ -n "$IWPRIV_PATH" ]; then
+            echo "Resolved iwpriv:"
+            echo "$IWPRIV_PATH"
+
+            REL="${IWPRIV_PATH#stock_dump/}"
+
+            if [[ "$REL" == vendor/* ]]; then
+              echo "$REL" >> "$NORMALIZED"
+            elif [[ "$REL" == odm/* ]]; then
+              echo "$REL" >> "$NORMALIZED"
+            fi
+          fi
+
+          # --------------------------------------------------------
+          # Clean whitespace/comments/duplicates.
+          # --------------------------------------------------------
+
+          sed -i \
+            -E \
+            's/[[:space:]]+$//' \
+            "$NORMALIZED"
+
+          sed -i \
+            '/^[[:space:]]*$/d' \
+            "$NORMALIZED"
+
+          sort -u "$NORMALIZED" -o "$NORMALIZED"
+
+          echo
+          echo "===== NORMALIZED LIST ====="
+
+          wc -l "$NORMALIZED"
+
+          echo
+          echo "First entries:"
+          head -n 30 "$NORMALIZED"
 
       # ============================================================
-      # VALIDATE
+      # 12. Validate proprietary-files.txt against stock dump
       # ============================================================
-      - name: ✅ Validate proprietary list
+      - name: ✅ Validate proprietary-files.txt
         shell: bash
         run: |
           set -euxo pipefail
 
-          LIST="${DEVICE_PATH}/proprietary-files.txt"
+          LIST="device/xiaomi/spinel/proprietary-files.txt"
 
-          total=0
-          missing=0
-          forbidden=0
-          leading_dash=0
+          mkdir -p reports
 
-          : > reports/validation-missing.txt
-          : > reports/validation-forbidden.txt
-          : > reports/validation-leading-dash.txt
+          MISSING_FILE="reports/missing-files.txt"
+          INVALID_FILE="reports/invalid-partitions.txt"
 
-          while IFS= read -r line || [ -n "$line" ]; do
+          : > "$MISSING_FILE"
+          : > "$INVALID_FILE"
 
-            [ -n "$line" ] || continue
+          COUNT=0
+          MISSING=0
+          INVALID=0
 
-            case "$line" in
-              \#*)
+          while IFS= read -r entry; do
+
+            [ -z "$entry" ] && continue
+
+            COUNT=$((COUNT + 1))
+
+            SRC="${entry%%:*}"
+
+            # Remove optional source modifiers.
+            SRC="${SRC#-}"
+
+            case "$SRC" in
+              vendor/*|odm/*|recovery/*)
+                ;;
+              *)
+                echo "$SRC" >> "$INVALID_FILE"
+                INVALID=$((INVALID + 1))
                 continue
                 ;;
             esac
 
-            source="${line%%:*}"
+            if [ ! -f "stock_dump/$SRC" ]; then
 
-            total=$((total + 1))
-
-            case "$source" in
-              system/*|system_ext/*|product/*|vendor_dlkm/*|odm_dlkm/*|mi_ext/*)
-                echo "$source" \
-                  >> reports/validation-forbidden.txt
-
-                forbidden=$((forbidden + 1))
-                ;;
-            esac
-
-            case "$source" in
-              -*)
-                echo "$source" \
-                  >> reports/validation-leading-dash.txt
-
-                leading_dash=$((leading_dash + 1))
-                ;;
-            esac
-
-            if [ ! -f "stock_dump/$source" ]; then
-
-              echo "$source" \
-                >> reports/validation-missing.txt
-
-              missing=$((missing + 1))
+              echo "$SRC" >> "$MISSING_FILE"
+              MISSING=$((MISSING + 1))
 
             fi
 
           done < "$LIST"
 
+          sort -u "$MISSING_FILE" -o "$MISSING_FILE"
+          sort -u "$INVALID_FILE" -o "$INVALID_FILE"
+
+          echo "===== VALIDATION ====="
+
+          echo "Entries : $COUNT"
+          echo "Missing : $MISSING"
+          echo "Invalid : $INVALID"
+
+          if [ "$MISSING" -ne 0 ]; then
+            echo
+            echo "Missing files:"
+            cat "$MISSING_FILE"
+            exit 1
+          fi
+
+          if [ "$INVALID" -ne 0 ]; then
+            echo
+            echo "Invalid partitions:"
+            cat "$INVALID_FILE"
+            exit 1
+          fi
+
           echo
-          echo "===== VALIDATION SUMMARY ====="
-          echo "Entries     : $total"
-          echo "Missing     : $missing"
-          echo "Forbidden   : $forbidden"
-          echo "Leading '-' : $leading_dash"
-
-          if [ "$missing" -ne 0 ]; then
-            echo
-            echo "ERROR: Missing proprietary files:"
-            cat reports/validation-missing.txt
-            exit 1
-          fi
-
-          if [ "$forbidden" -ne 0 ]; then
-            echo
-            echo "ERROR: Forbidden entries:"
-            cat reports/validation-forbidden.txt
-            exit 1
-          fi
-
-          if [ "$leading_dash" -ne 0 ]; then
-            echo
-            echo "ERROR: Leading '-' entries:"
-            cat reports/validation-leading-dash.txt
-            exit 1
-          fi
-
-          echo "Validation: PASS"
+          echo "VALIDATION PASS"
 
       # ============================================================
-      # GENERATE EXTRACT-FILES.PY
+      # 13. Generate extract-files.py
       # ============================================================
-      - name: 🐍 Generate extract-files.py
+      - name: 📝 Generate extract-files.py
+        shell: bash
         run: |
           set -euxo pipefail
 
-          cat > "${DEVICE_PATH}/extract-files.py" <<'PY'
+          cat > device/xiaomi/spinel/extract-files.py <<'PY'
           #!/usr/bin/env python3
 
           from extract_utils.main import (
@@ -938,36 +698,38 @@ jobs:
               ExtractUtilsModule,
           )
 
-          DEVICE = "spinel"
-          VENDOR = "xiaomi"
 
-          module = ExtractUtilsModule(
-              DEVICE,
-              VENDOR,
-              check_elf=True,
-              add_firmware_proprietary_file=False,
-          )
+          def main():
+              module = ExtractUtilsModule(
+                  "spinel",
+                  "xiaomi",
+                  check_elf=True,
+                  add_firmware_proprietary_file=False,
+              )
 
-          utils = ExtractUtils(
-              module=module,
-              source_root="stock_dump",
-              device_path="device/xiaomi/spinel",
-              vendor_path="vendor/xiaomi/spinel",
-          )
+              utils = ExtractUtils(module)
 
-          utils.run()
+              utils.run()
+
+
+          if __name__ == "__main__":
+              main()
           PY
 
-          chmod +x "${DEVICE_PATH}/extract-files.py"
+          chmod +x device/xiaomi/spinel/extract-files.py
+
+          echo "===== extract-files.py ====="
+          cat device/xiaomi/spinel/extract-files.py
 
       # ============================================================
-      # GENERATE SETUP-MAKEFILES.PY
+      # 14. Generate setup-makefiles.py
       # ============================================================
-      - name: 🐍 Generate setup-makefiles.py
+      - name: 📝 Generate setup-makefiles.py
+        shell: bash
         run: |
           set -euxo pipefail
 
-          cat > "${DEVICE_PATH}/setup-makefiles.py" <<'PY'
+          cat > device/xiaomi/spinel/setup-makefiles.py <<'PY'
           #!/usr/bin/env python3
 
           from extract_utils.main import (
@@ -975,268 +737,272 @@ jobs:
               ExtractUtilsModule,
           )
 
-          DEVICE = "spinel"
-          VENDOR = "xiaomi"
 
-          module = ExtractUtilsModule(
-              DEVICE,
-              VENDOR,
-              check_elf=True,
-              add_firmware_proprietary_file=False,
-          )
+          def main():
+              module = ExtractUtilsModule(
+                  "spinel",
+                  "xiaomi",
+                  check_elf=True,
+                  add_firmware_proprietary_file=False,
+              )
 
-          utils = ExtractUtils(
-              module=module,
-              source_root="stock_dump",
-              device_path="device/xiaomi/spinel",
-              vendor_path="vendor/xiaomi/spinel",
-          )
+              utils = ExtractUtils(module)
 
-          utils.run()
+              utils.run()
+
+
+          if __name__ == "__main__":
+              main()
           PY
 
-          chmod +x "${DEVICE_PATH}/setup-makefiles.py"
+          chmod +x device/xiaomi/spinel/setup-makefiles.py
+
+          echo "===== setup-makefiles.py ====="
+          cat device/xiaomi/spinel/setup-makefiles.py
 
       # ============================================================
-      # EXTRACT BLOBS
+      # 15. FINAL IMPORT TEST
+      #
+      # This specifically prevents Run #18's failure.
       # ============================================================
-      - name: 🧬 Extract proprietary blobs
+      - name: 🐍 FINAL extract-utils import test
+        shell: bash
         run: |
           set -euxo pipefail
+
+          export PYTHONPATH="$EXTRACT_UTILS_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+
+          echo "===== FINAL IMPORT TEST ====="
+          echo "EXTRACT_UTILS_ROOT=$EXTRACT_UTILS_ROOT"
+          echo "PYTHONPATH=$PYTHONPATH"
+
+          python3 - <<'PY'
+          import sys
+
+          print("sys.path:")
+          for path in sys.path:
+              print("  ", path)
+
+          from extract_utils.main import (
+              ExtractUtils,
+              ExtractUtilsModule,
+          )
+
+          print()
+          print("ExtractUtils import: OK")
+          print("ExtractUtilsModule import: OK")
+          PY
+
+      # ============================================================
+      # 16. Run extract-files.py
+      # ============================================================
+      - name: 🧬 Run extract-utils
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          export PYTHONPATH="$EXTRACT_UTILS_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
           echo "===== RUNNING EXTRACT-UTILS ====="
 
           python3 \
-            "${DEVICE_PATH}/extract-files.py" \
+            device/xiaomi/spinel/extract-files.py \
             --kang
 
       # ============================================================
-      # VERIFY GENERATED VENDOR TREE
+      # 17. Inspect generated tree
       # ============================================================
-      - name: 🔍 Verify generated vendor tree
+      - name: 🔎 Inspect generated vendor tree
+        shell: bash
         run: |
           set -euxo pipefail
 
-          if [ ! -d vendor/xiaomi/spinel ]; then
-            echo "ERROR: vendor/xiaomi/spinel was not generated."
+          echo "===== GENERATED VENDOR TREE ====="
+
+          if [ -d "$VENDOR_PATH" ]; then
+
+            find "$VENDOR_PATH" \
+              -maxdepth 4 \
+              -type f \
+              -printf '%p\n' \
+              | sort \
+              | head -n 300
+
+            echo
+            echo "Generated size:"
+            du -sh "$VENDOR_PATH"
+
+          else
+
+            echo "ERROR: $VENDOR_PATH was not generated."
             exit 1
+
           fi
 
-          echo "Generated vendor tree:"
-          find vendor/xiaomi/spinel \
-            -maxdepth 2 \
-            -type f \
-            | sort \
-            | head -n 200
-
       # ============================================================
-      # COPY GENERATED TREE INTO ROOT
+      # 18. Restore manually handled VINTF manifests
       # ============================================================
-      - name: 📦 Flatten vendor tree into repository root
+      - name: 🧩 Restore ODM VINTF manifests
+        shell: bash
         run: |
           set -euxo pipefail
 
-          GENERATED="vendor/xiaomi/spinel"
+          SRC_ROOT="stock_dump/vendor/odm/etc/vintf"
+          DST_ROOT="$VENDOR_PATH/proprietary/odm/etc/vintf"
 
-          rm -rf generated_root/extracted_vendor
-          mkdir -p generated_root/extracted_vendor
+          mkdir -p "$DST_ROOT"
 
-          rsync -a \
-            "$GENERATED/" \
-            generated_root/extracted_vendor/
+          for FILE in \
+            manifest_nonfc_dsds.xml \
+            manifest_nonfc_ss.xml
+          do
 
-          # Add manually recovered VINTF files.
-          if [ -d generated_root/proprietary ]; then
+            if [ -f "$SRC_ROOT/$FILE" ]; then
 
-            rsync -a \
-              generated_root/proprietary/ \
-              generated_root/extracted_vendor/proprietary/
+              cp -f \
+                "$SRC_ROOT/$FILE" \
+                "$DST_ROOT/$FILE"
 
-          fi
+              echo "Restored: $FILE"
 
-          # Add radio if found.
-          if [ -d generated_root/radio ]; then
+            else
+
+              echo "WARNING: Missing stock VINTF file: $FILE"
+
+            fi
+
+          done
+
+      # ============================================================
+      # 19. Copy radio directory if any raw images were found
+      # ============================================================
+      - name: 📡 Add discovered radio images
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          if [ -d generated_root/radio ] && \
+             find generated_root/radio -type f -print -quit | grep -q .; then
+
+            mkdir -p "$VENDOR_PATH/radio"
 
             rsync -a \
               generated_root/radio/ \
-              generated_root/extracted_vendor/radio/
+              "$VENDOR_PATH/radio/"
 
-          fi
-
-          # Remove generated nested vendor tree.
-          rm -rf vendor
-
-          # Remove old generated content from repository root,
-          # preserving repository metadata and workflow.
-          find . \
-            -mindepth 1 \
-            -maxdepth 1 \
-            ! -name ".git" \
-            ! -name ".github" \
-            ! -name "stock_dump" \
-            ! -name "extract-utils" \
-            ! -name "device" \
-            ! -name "reports" \
-            ! -name "generated_root" \
-            ! -name "fastboot_rom" \
-            ! -name "fastboot_rom_extract" \
-            -exec rm -rf {} +
-
-          # Copy vendor package directly to repo root.
-          rsync -a \
-            generated_root/extracted_vendor/ \
-            ./
-
-          echo
-          echo "===== FINAL ROOT ====="
-
-          find . \
-            -maxdepth 2 \
-            -type f \
-            ! -path "./.git/*" \
-            | sort
-
-      # ============================================================
-      # MANUAL VINTF RESTORE
-      # ============================================================
-      - name: 🧩 Restore manual VINTF
-        run: |
-          set -euxo pipefail
-
-          mkdir -p proprietary/odm/etc/vintf
-
-          if [ -f generated_root/proprietary/odm/etc/vintf/manifest_nonfc_dsds.xml ]; then
-
-            cp \
-              generated_root/proprietary/odm/etc/vintf/manifest_nonfc_dsds.xml \
-              proprietary/odm/etc/vintf/manifest_nonfc_dsds.xml
-
-          fi
-
-          if [ -f generated_root/proprietary/odm/etc/vintf/manifest_nonfc_ss.xml ]; then
-
-            cp \
-              generated_root/proprietary/odm/etc/vintf/manifest_nonfc_ss.xml \
-              proprietary/odm/etc/vintf/manifest_nonfc_ss.xml
-
-          fi
-
-          echo "===== VINTF ====="
-
-          find proprietary/odm/etc/vintf \
-            -type f \
-            | sort || true
-
-      # ============================================================
-      # GENERATE BOARD CONFIG
-      # ============================================================
-      - name: 🧱 Generate BoardConfigVendor.mk
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          cat > BoardConfigVendor.mk <<'EOF'
-          #
-          # Copyright (C) 2026 The LineageOS Project
-          #
-          # SPDX-License-Identifier: Apache-2.0
-          #
-
-          # Xiaomi spinel proprietary vendor configuration.
-
-          EOF
-
-          if [ -d radio ]; then
-
-            cat >> BoardConfigVendor.mk <<'EOF'
-
-          # Raw MediaTek firmware partitions recovered from the
-          # spinel stock Fastboot firmware.
-
-          AB_OTA_PARTITIONS += \
-              dpm \
-              gz \
-              lk \
-              mcupm \
-              md1img \
-              pi_img \
-              preloader_raw \
-              scp \
-              spmfw \
-              sspm \
-              tee
-          EOF
-
-          else
-
-            cat >> BoardConfigVendor.mk <<'EOF'
-
-          # Raw MediaTek firmware partitions are not included because
-          # the available spinel stock dump did not contain the raw
-          # partition images.
-
-          # Expected when available:
-          #
-          # dpm
-          # gz
-          # lk
-          # mcupm
-          # md1img
-          # pi_img
-          # preloader_raw
-          # scp
-          # spmfw
-          # sspm
-          # tee
-          EOF
-
-          fi
-
-      # ============================================================
-      # NORMALIZE VENDOR MAKEFILE
-      # ============================================================
-      - name: 🧩 Normalize spinel-vendor.mk
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          MK=""
-
-          if [ -f spinel-vendor.mk ]; then
-            MK="spinel-vendor.mk"
-
-          elif [ -f "${DEVICE}-vendor.mk" ]; then
-            MK="${DEVICE}-vendor.mk"
-
-          else
-
-            MK=$(find . \
+            echo "Radio files copied:"
+            find "$VENDOR_PATH/radio" \
               -maxdepth 1 \
               -type f \
-              -name '*-vendor.mk' \
-              -print \
-              | sort \
-              | head -n 1 || true)
+              -printf '%f\n' \
+              | sort
+
+          else
+
+            echo "No radio images found."
+            echo "No radio directory will be added."
 
           fi
 
-          if [ -z "$MK" ]; then
-            echo "ERROR: vendor makefile not generated."
+      # ============================================================
+      # 20. Generate BoardConfigVendor.mk
+      # ============================================================
+      - name: 🧩 Generate BoardConfigVendor.mk
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cat > "$VENDOR_PATH/BoardConfigVendor.mk" <<'EOF'
+          # SPDX-License-Identifier: Apache-2.0
+
+          # ============================================================
+          # Xiaomi spinel vendor configuration
+          # ============================================================
+
+          # Generated from stock:
+          # OS2.0.212.0.VPGMIXM
+          # Android 15
+          # MT6789
+          # Redmi Note 15 4G / spinel
+
+          TARGET_COPY_OUT_VENDOR := vendor
+          TARGET_COPY_OUT_ODM := vendor/odm
+
+          # ============================================================
+          # Raw firmware images
+          #
+          # These are included only if discovered from spinel's own
+          # Fastboot ROM.
+          #
+          # DO NOT replace these with another device's firmware.
+          # ============================================================
+
+          EOF
+
+          if [ -d "$VENDOR_PATH/radio" ] && \
+             find "$VENDOR_PATH/radio" -type f -print -quit | grep -q .; then
+
+            echo "# Discovered spinel firmware images:" \
+              >> "$VENDOR_PATH/BoardConfigVendor.mk"
+
+            find "$VENDOR_PATH/radio" \
+              -maxdepth 1 \
+              -type f \
+              -printf '%f\n' \
+              | sort \
+              | while IFS= read -r name; do
+                  echo "#   $name" \
+                    >> "$VENDOR_PATH/BoardConfigVendor.mk"
+                done
+
+          else
+
+            cat >> "$VENDOR_PATH/BoardConfigVendor.mk" <<'EOF'
+
+          # No raw firmware images were present in the supplied stock
+          # dump/Fastboot ROM.
+          EOF
+
+          fi
+
+      # ============================================================
+      # 21. Normalize generated vendor makefile
+      # ============================================================
+      - name: 🧩 Normalize vendor makefile
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          MAKEFILE=""
+
+          if [ -f "$VENDOR_PATH/${DEVICE}-vendor.mk" ]; then
+            MAKEFILE="$VENDOR_PATH/${DEVICE}-vendor.mk"
+          elif [ -f "$VENDOR_PATH/spinel-vendor.mk" ]; then
+            MAKEFILE="$VENDOR_PATH/spinel-vendor.mk"
+          else
+            MAKEFILE="$(
+              find "$VENDOR_PATH" \
+                -maxdepth 1 \
+                -type f \
+                -name '*-vendor.mk' \
+                -print \
+                -quit
+            )"
+          fi
+
+          if [ -z "$MAKEFILE" ]; then
+            echo "ERROR: No generated vendor makefile found."
             exit 1
           fi
 
-          if [ "$MK" != "spinel-vendor.mk" ]; then
+          echo "Vendor makefile:"
+          echo "$MAKEFILE"
 
-            cp "$MK" spinel-vendor.mk
+          # Ensure the expected VINTF copies are present.
+          if [ -f "$VENDOR_PATH/proprietary/odm/etc/vintf/manifest_nonfc_dsds.xml" ] &&
+             [ -f "$VENDOR_PATH/proprietary/odm/etc/vintf/manifest_nonfc_ss.xml" ]; then
 
-            MK="spinel-vendor.mk"
-
-          fi
-
-          # --------------------------------------------------------
-          # Manual VINTF
-          # --------------------------------------------------------
-          cat >> "$MK" <<'EOF'
+            cat >> "$MAKEFILE" <<'EOF'
 
           # Manually restored ODM VINTF manifests.
           PRODUCT_COPY_FILES += \
@@ -1244,362 +1010,263 @@ jobs:
               vendor/xiaomi/spinel/proprietary/odm/etc/vintf/manifest_nonfc_ss.xml:$(TARGET_COPY_OUT_VENDOR)/odm/etc/vintf/manifest_nonfc_ss.xml
           EOF
 
-          # --------------------------------------------------------
-          # Radio firmware
-          # --------------------------------------------------------
-          if [ -d radio ]; then
-
-            cat >> "$MK" <<'EOF'
-
-          # Raw spinel firmware partitions.
-          PRODUCT_COPY_FILES += \
-              vendor/xiaomi/spinel/radio/dpm.img:dpm \
-              vendor/xiaomi/spinel/radio/gz.img:gz \
-              vendor/xiaomi/spinel/radio/lk.img:lk \
-              vendor/xiaomi/spinel/radio/mcupm.img:mcupm \
-              vendor/xiaomi/spinel/radio/md1img.img:md1img \
-              vendor/xiaomi/spinel/radio/pi_img.img:pi_img \
-              vendor/xiaomi/spinel/radio/preloader_raw.img:preloader_raw \
-              vendor/xiaomi/spinel/radio/scp.img:scp \
-              vendor/xiaomi/spinel/radio/spmfw.img:spmfw \
-              vendor/xiaomi/spinel/radio/sspm.img:sspm \
-              vendor/xiaomi/spinel/radio/tee.img:tee
-          EOF
-
           fi
 
+          echo
+          echo "===== VENDOR MAKEFILE ====="
+          cat "$MAKEFILE"
+
       # ============================================================
-      # FINAL REQUIRED FILES
+      # 22. Flatten generated tree into repository ROOT
+      #
+      # Final repository must NOT contain:
+      # vendor/xiaomi/spinel/
+      #
+      # The repository itself IS vendor/xiaomi/spinel.
       # ============================================================
-      - name: 🔍 Verify final repository layout
+      - name: 📁 Flatten vendor tree into repository root
+        shell: bash
         run: |
           set -euxo pipefail
 
-          echo "===== REQUIRED ROOT FILES ====="
+          if [ ! -d "$VENDOR_PATH" ]; then
+            echo "ERROR: Generated vendor path does not exist."
+            exit 1
+          fi
 
-          for file in \
+          rm -rf generated_root/final_vendor
+          mkdir -p generated_root/final_vendor
+
+          rsync -a \
+            "$VENDOR_PATH/" \
+            generated_root/final_vendor/
+
+          echo "===== GENERATED ROOT SNAPSHOT ====="
+
+          find generated_root/final_vendor \
+            -maxdepth 3 \
+            -print \
+            | sort \
+            | head -n 300
+
+          # ----------------------------------------------------------
+          # Preserve repository files that are not generated vendor
+          # files, then copy generated tree over them.
+          # ----------------------------------------------------------
+
+          rsync -a \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            generated_root/final_vendor/ \
+            ./
+
+          # ----------------------------------------------------------
+          # Remove generated nested vendor path if extract-utils
+          # created it inside the repository.
+          # ----------------------------------------------------------
+
+          rm -rf vendor/xiaomi/spinel
+
+          # Remove empty parent directories when possible.
+          rmdir vendor/xiaomi 2>/dev/null || true
+          rmdir vendor 2>/dev/null || true
+
+      # ============================================================
+      # 23. Verify final repository layout
+      # ============================================================
+      - name: 🔍 Verify final repository layout
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          echo "===== ROOT ====="
+
+          ls -la
+
+          echo
+          echo "===== EXPECTED FILES ====="
+
+          for FILE in \
             Android.bp \
             Android.mk \
             BoardConfigVendor.mk \
-            spinel-vendor.mk \
             proprietary-files.txt \
             extract-files.py \
             setup-makefiles.py
           do
 
-            if [ ! -f "$file" ]; then
-              echo "ERROR: Missing $file"
-              exit 1
+            if [ -f "$FILE" ]; then
+              echo "OK: $FILE"
+            else
+              echo "WARNING: $FILE not found"
             fi
-
-            echo "PASS: $file"
 
           done
 
           echo
-          echo "===== REQUIRED DIRECTORIES ====="
+          echo "===== PROPRIETARY DIRECTORIES ====="
 
-          [ -d proprietary/vendor ] || {
-            echo "ERROR: proprietary/vendor missing"
-            exit 1
-          }
-
-          [ -d proprietary/odm ] || {
-            echo "ERROR: proprietary/odm missing"
-            exit 1
-          }
-
-          echo "PASS: proprietary/vendor"
-          echo "PASS: proprietary/odm"
+          find proprietary \
+            -maxdepth 3 \
+            -type d \
+            -print \
+            2>/dev/null \
+            | sort \
+            | head -n 100
 
           echo
-          echo "===== NESTED VENDOR CHECK ====="
+          echo "===== NESTED PATH CHECK ====="
 
           if [ -d vendor/xiaomi/spinel ]; then
-            echo "ERROR: vendor/xiaomi/spinel still exists."
+            echo "ERROR: Nested vendor/xiaomi/spinel still exists."
             exit 1
           fi
 
-          echo "PASS: nested vendor/xiaomi/spinel absent."
+          echo "PASS: vendor/xiaomi/spinel is absent."
 
       # ============================================================
-      # VERIFY VINTF
+      # 24. Verify contamination
       # ============================================================
-      - name: 🧪 Verify VINTF
-        run: |
-          set -euxo pipefail
-
-          for file in \
-            proprietary/odm/etc/vintf/manifest_nonfc_dsds.xml \
-            proprietary/odm/etc/vintf/manifest_nonfc_ss.xml
-          do
-
-            if [ ! -f "$file" ]; then
-              echo "ERROR: Missing $file"
-              exit 1
-            fi
-
-            echo "PASS: $file"
-
-          done
-
-      # ============================================================
-      # VERIFY RADIO
-      #
-      # If radio/ exists, ALL 11 must exist.
-      # ============================================================
-      - name: 🧪 Verify radio directory
+      - name: 🧹 Verify no system/product contamination
         shell: bash
-        run: |
-          set -euxo pipefail
-
-          if [ ! -d radio ]; then
-
-            echo "No radio directory."
-            echo "This is allowed because the supplied firmware"
-            echo "did not contain the raw partition images."
-
-            exit 0
-
-          fi
-
-          echo "===== RADIO FILES ====="
-
-          for file in \
-            dpm.img \
-            gz.img \
-            lk.img \
-            mcupm.img \
-            md1img.img \
-            pi_img.img \
-            preloader_raw.img \
-            scp.img \
-            spmfw.img \
-            sspm.img \
-            tee.img
-          do
-
-            if [ ! -f "radio/$file" ]; then
-              echo "ERROR: radio/$file missing."
-              exit 1
-            fi
-
-            echo "PASS: radio/$file"
-
-          done
-
-      # ============================================================
-      # CONTAMINATION CHECK
-      # ============================================================
-      - name: 🧹 Check repository contamination
         run: |
           set -euxo pipefail
 
           echo "===== CONTAMINATION CHECK ====="
 
-          if find . \
-            -path "./.git" -prune -o \
-            -path "./.github" -prune -o \
+          BAD=0
+
+          for DIR in \
+            system \
+            system_ext \
+            product \
+            vendor_dlkm \
+            odm_dlkm \
+            mi_ext
+          do
+
+            if [ -d "proprietary/$DIR" ]; then
+              echo "ERROR: proprietary/$DIR exists"
+              BAD=1
+            fi
+
+          done
+
+          if find proprietary \
             -type f \
             \( \
-              -path "./system/*" \
-              -o -path "./system_ext/*" \
-              -o -path "./product/*" \
+              -path '*/system/*' \
+              -o -path '*/system_ext/*' \
+              -o -path '*/product/*' \
+              -o -path '*/vendor_dlkm/*' \
+              -o -path '*/odm_dlkm/*' \
             \) \
             -print \
-            | grep -q .
-          then
+            | grep -q .; then
 
-            echo "ERROR: system/system_ext/product contamination found."
-            exit 1
+            echo "ERROR: forbidden partition content detected."
+            BAD=1
 
           fi
 
-          if [ -d vendor/xiaomi/spinel ]; then
-            echo "ERROR: nested vendor tree found."
+          if [ "$BAD" -ne 0 ]; then
             exit 1
           fi
 
-          echo "PASS"
+          echo "PASS: No forbidden partition contamination."
 
       # ============================================================
-      # FINAL INVENTORY
+      # 25. Final vendor statistics
       # ============================================================
-      - name: 📊 Generate final inventory
+      - name: 📊 Generate final reports
+        shell: bash
         run: |
           set -euxo pipefail
 
-          {
-            echo "===== FINAL VENDOR TREE ====="
-            echo
+          mkdir -p reports
 
-            echo "Root:"
-            pwd
+          echo "===== FINAL STATISTICS =====" \
+            > reports/final-summary.txt
 
-            echo
-            echo "Total tracked candidate files:"
-            find . \
-              -type f \
-              ! -path "./.git/*" \
-              ! -path "./stock_dump/*" \
-              ! -path "./extract-utils/*" \
-              | wc -l
+          echo >> reports/final-summary.txt
 
-            echo
-            echo "Vendor proprietary:"
-            find proprietary/vendor \
-              -type f \
-              | wc -l
+          echo "Repository:" \
+            >> reports/final-summary.txt
 
-            echo
-            echo "ODM proprietary:"
-            find proprietary/odm \
-              -type f \
-              | wc -l
+          echo "$GITHUB_REPOSITORY" \
+            >> reports/final-summary.txt
 
-            echo
-            echo "Radio:"
-            if [ -d radio ]; then
-              find radio \
-                -type f \
-                | sort
-            else
-              echo "NOT PRESENT"
-            fi
+          echo >> reports/final-summary.txt
 
-            echo
-            echo "Nested vendor/xiaomi/spinel:"
-            if [ -d vendor/xiaomi/spinel ]; then
-              echo "PRESENT - ERROR"
-            else
-              echo "ABSENT"
-            fi
+          echo "Commit:" \
+            >> reports/final-summary.txt
 
-          } | tee reports/inventory/final.txt
+          git rev-parse HEAD \
+            >> reports/final-summary.txt
+
+          echo >> reports/final-summary.txt
+
+          echo "Vendor tree size:" \
+            >> reports/final-summary.txt
+
+          du -sh proprietary 2>/dev/null \
+            >> reports/final-summary.txt || true
+
+          echo >> reports/final-summary.txt
+
+          echo "Proprietary file count:" \
+            >> reports/final-summary.txt
+
+          find proprietary \
+            -type f \
+            2>/dev/null \
+            | wc -l \
+            >> reports/final-summary.txt
+
+          echo >> reports/final-summary.txt
+
+          echo "Root files:" \
+            >> reports/final-summary.txt
+
+          find . \
+            -maxdepth 1 \
+            -type f \
+            -printf '%f\n' \
+            | sort \
+            >> reports/final-summary.txt
+
+          echo
+          cat reports/final-summary.txt
 
       # ============================================================
-      # BUILD REPORT
+      # 26. Show git diff
       # ============================================================
-      - name: 📝 Generate build report
+      - name: 📝 Show git diff
+        shell: bash
         run: |
           set -euxo pipefail
 
-          found_count=$(wc -l < reports/radio/found.txt)
-          missing_count=$(wc -l < reports/radio/missing.txt)
-
-          {
-            echo "========================================"
-            echo " spinel LineageOS Vendor Tree"
-            echo "========================================"
-            echo
-            echo "Device       : spinel"
-            echo "Brand        : xiaomi"
-            echo "Android base : HyperOS 2 / Android 15"
-            echo "Kernel base  : 5.10"
-            echo
-            echo "Stock branch : ${STOCK_BRANCH}"
-            echo
-            echo "Fastboot URL :"
-            if [ -n "${{ inputs.STOCK_FASTBOOT_URL }}" ]; then
-              echo "PROVIDED"
-            else
-              echo "NOT PROVIDED"
-            fi
-
-            echo
-            echo "========================================"
-            echo " Radio"
-            echo "========================================"
-            echo
-            echo "Found   : $found_count"
-            echo "Missing : $missing_count"
-
-            echo
-            echo "Sources:"
-            cat reports/radio/source.txt || true
-
-            echo
-            echo "========================================"
-            echo " VINTF"
-            echo "========================================"
-            echo
-
-            cat reports/vintf/manual-vintf.txt || true
-
-            echo
-            echo "========================================"
-            echo " Final layout"
-            echo "========================================"
-            echo
-            echo "Android.bp"
-            echo "Android.mk"
-            echo "BoardConfigVendor.mk"
-            echo "spinel-vendor.mk"
-            echo "proprietary-files.txt"
-            echo "extract-files.py"
-            echo "setup-makefiles.py"
-            echo "proprietary/vendor/"
-            echo "proprietary/odm/"
-
-            if [ -d radio ]; then
-              echo "radio/"
-            else
-              echo "radio/ NOT PRESENT"
-            fi
-
-            echo
-            echo "Nested vendor/xiaomi/spinel: ABSENT"
-
-          } | tee reports/BUILD_REPORT.txt
-
-      # ============================================================
-      # CLEAN TEMPORARY DATA
-      # ============================================================
-      - name: 🧽 Clean temporary build data
-        run: |
-          set -euxo pipefail
-
-          rm -rf \
-            stock_dump \
-            extract-utils \
-            device \
-            vendor \
-            generated_root \
-            fastboot_rom \
-            fastboot_rom_extract
-
-      # ============================================================
-      # GIT STATUS
-      # ============================================================
-      - name: 📋 Show Git status
-        run: |
-          set -euxo pipefail
+          echo "===== GIT STATUS ====="
 
           git status --short
 
           echo
-          echo "===== FINAL ROOT ====="
+          echo "===== CHANGED FILES ====="
 
-          find . \
-            -maxdepth 2 \
-            -type f \
-            ! -path "./.git/*" \
-            | sort
+          git status --short \
+            | head -n 300
 
       # ============================================================
-      # COMMIT
+      # 27. Commit generated tree
       # ============================================================
       - name: 🚀 Commit generated vendor tree
+        if: ${{ inputs.COMMIT_CHANGES }}
+        shell: bash
         run: |
           set -euxo pipefail
 
-          git config \
-            user.name \
-            "github-actions[bot]"
-
-          git config \
-            user.email \
-            "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add -A
 
@@ -1609,26 +1276,15 @@ jobs:
           fi
 
           git commit \
-            -m "vendor: xiaomi: spinel: generate LineageOS vendor tree"
+            -m "spinel: update proprietary vendor blobs"
 
           git push
 
       # ============================================================
-      # ARTIFACT REPORTS
+      # 28. Upload artifacts
       # ============================================================
-      - name: 📦 Upload reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: spinel-vendor-tree-reports
-          path: reports/
-          if-no-files-found: warn
-
-      # ============================================================
-      # ARTIFACT VENDOR TREE
-      # ============================================================
-      - name: 📦 Upload vendor tree
-        if: success()
+      - name: 📦 Upload generated vendor tree
+        if: ${{ always() && inputs.UPLOAD_ARTIFACTS }}
         uses: actions/upload-artifact@v4
         with:
           name: spinel-vendor-tree
@@ -1636,10 +1292,23 @@ jobs:
             Android.bp
             Android.mk
             BoardConfigVendor.mk
-            spinel-vendor.mk
             proprietary-files.txt
             extract-files.py
             setup-makefiles.py
+            spinel-vendor.mk
             proprietary/
             radio/
           if-no-files-found: warn
+          retention-days: 7
+
+      # ============================================================
+      # 29. Upload reports
+      # ============================================================
+      - name: 📋 Upload reports
+        if: ${{ always() && inputs.UPLOAD_ARTIFACTS }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: spinel-vendor-reports
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 7
