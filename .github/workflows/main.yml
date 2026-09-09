@@ -1,0 +1,1176 @@
+name: 🧬 Build LineageOS Vendor Tree • spinel
+
+on:
+  workflow_dispatch:
+    inputs:
+      dump_repo:
+        description: "Dumber dump repository"
+        required: true
+        default: "mkpromvp/dumber-2-mk"
+
+      dump_branch:
+        description: "Dumber dump branch"
+        required: true
+        default: "dump-redmi-spinel-os2.0.212.0.vpgmixm"
+
+      device_tree_repo:
+        description: "Optional device tree repository. Leave empty to use dump proprietary-files.txt"
+        required: false
+        default: ""
+
+      device_tree_branch:
+        description: "Device tree branch"
+        required: false
+        default: "lineage-23.2"
+
+      lineage_branch:
+        description: "Lineage branch used for extract-utils"
+        required: true
+        default: "lineage-23.2"
+
+      output_vendor:
+        description: "Vendor output directory"
+        required: true
+        default: "vendor/xiaomi/spinel"
+
+      strict:
+        description: "Fail if proprietary files are missing"
+        required: true
+        type: boolean
+        default: true
+
+      generate_report:
+        description: "Generate detailed audit report"
+        required: true
+        type: boolean
+        default: true
+
+      commit_vendor:
+        description: "Commit generated vendor tree to this repository"
+        required: true
+        type: boolean
+        default: false
+
+      commit_message:
+        description: "Commit message"
+        required: true
+        default: "vendor: generate blobs from HyperOS 2.0.212.0.VPGMIXM dump"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vendor-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEVICE: spinel
+  VENDOR: xiaomi
+  DUMP_DIR: ${{ github.workspace }}/stock_dump
+  WORK_DIR: ${{ github.workspace }}/vendor_work
+  OUTPUT_VENDOR: ${{ github.workspace }}/vendor/xiaomi/spinel
+
+jobs:
+  build-vendor:
+    name: 🧬 Generate LineageOS Vendor Tree
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+
+      # ------------------------------------------------------------
+      # 1. Checkout target repository
+      # ------------------------------------------------------------
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ------------------------------------------------------------
+      # 2. System information
+      # ------------------------------------------------------------
+      - name: 🧾 Environment
+        shell: bash
+        run: |
+          set -eux
+
+          echo "=========================================="
+          echo "🧬 LineageOS Vendor Generator"
+          echo "=========================================="
+          echo "Device       : ${DEVICE}"
+          echo "Vendor       : ${VENDOR}"
+          echo "Dump repo    : ${{ inputs.dump_repo }}"
+          echo "Dump branch  : ${{ inputs.dump_branch }}"
+          echo "Lineage      : ${{ inputs.lineage_branch }}"
+          echo "Output       : ${OUTPUT_VENDOR}"
+          echo "Runner       : ${RUNNER_OS}"
+          echo "CPU          : $(nproc)"
+          echo "RAM          : $(free -h | awk '/Mem:/ {print $2}')"
+          echo "=========================================="
+
+      # ------------------------------------------------------------
+      # 3. Install dependencies
+      # ------------------------------------------------------------
+      - name: 🧰 Install dependencies
+        shell: bash
+        run: |
+          set -eux
+
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            adb \
+            android-sdk-platform-tools \
+            aria2 \
+            bc \
+            bison \
+            build-essential \
+            ccache \
+            clang \
+            cmake \
+            cpio \
+            curl \
+            file \
+            flex \
+            git \
+            git-lfs \
+            jq \
+            libelf-dev \
+            liblz4-tool \
+            liblzma-dev \
+            libncurses5-dev \
+            libncurses-dev \
+            libssl-dev \
+            lld \
+            llvm \
+            lz4 \
+            p7zip-full \
+            patch \
+            patchelf \
+            python3 \
+            python3-pip \
+            python3-venv \
+            rsync \
+            unzip \
+            wget \
+            xz-utils \
+            zip \
+            zlib1g-dev
+
+          git lfs install
+
+          python3 --version
+          git --version
+          llvm-readelf --version || true
+          readelf --version || true
+
+      # ------------------------------------------------------------
+      # 4. Prepare directories
+      # ------------------------------------------------------------
+      - name: 📁 Prepare workspace
+        shell: bash
+        run: |
+          set -eux
+
+          rm -rf "${DUMP_DIR}"
+          rm -rf "${WORK_DIR}"
+          rm -rf "${OUTPUT_VENDOR}"
+
+          mkdir -p "${DUMP_DIR}"
+          mkdir -p "${WORK_DIR}"
+          mkdir -p "${OUTPUT_VENDOR}"
+
+          mkdir -p reports
+          mkdir -p tools
+          mkdir -p lineage_tools
+
+      # ------------------------------------------------------------
+      # 5. Clone complete HyperOS dump
+      # ------------------------------------------------------------
+      - name: 📦 Clone HyperOS dump
+        shell: bash
+        run: |
+          set -eux
+
+          echo "Cloning dump..."
+
+          git clone \
+            --depth=1 \
+            --single-branch \
+            --branch "${{ inputs.dump_branch }}" \
+            "https://github.com/${{ inputs.dump_repo }}.git" \
+            "${DUMP_DIR}"
+
+          echo
+          echo "Dump size:"
+          du -sh "${DUMP_DIR}"
+
+          echo
+          echo "Dump top-level:"
+          find "${DUMP_DIR}" \
+            -maxdepth 2 \
+            -mindepth 1 \
+            -type d \
+            -print \
+            | sort \
+            | head -200
+
+      # ------------------------------------------------------------
+      # 6. Clone Lineage extract-utils
+      # ------------------------------------------------------------
+      - name: 🧬 Clone Lineage extract-utils
+        shell: bash
+        run: |
+          set -eux
+
+          git clone \
+            --depth=1 \
+            --single-branch \
+            --branch "${{ inputs.lineage_branch }}" \
+            https://github.com/LineageOS/android_tools_extract-utils.git \
+            lineage_tools/extract-utils
+
+          echo
+          echo "extract-utils:"
+          find lineage_tools/extract-utils \
+            -maxdepth 2 \
+            -type f \
+            | sort \
+            | head -100
+
+      # ------------------------------------------------------------
+      # 7. Obtain proprietary-files.txt
+      #
+      # Priority:
+      #
+      # 1. Device tree proprietary-files.txt
+      # 2. Dumber dump proprietary-files.txt
+      #
+      # This prevents blindly copying the entire stock vendor.
+      # ------------------------------------------------------------
+      - name: 📜 Select proprietary-files.txt
+        shell: bash
+        run: |
+          set -eux
+
+          mkdir -p "${WORK_DIR}/device"
+
+          SOURCE_LIST=""
+
+          # --------------------------------------------------------
+          # Device tree supplied by user
+          # --------------------------------------------------------
+          if [[ -n "${{ inputs.device_tree_repo }}" ]]; then
+
+            echo "Cloning device tree..."
+
+            rm -rf "${WORK_DIR}/device-tree"
+
+            git clone \
+              --depth=1 \
+              --single-branch \
+              --branch "${{ inputs.device_tree_branch }}" \
+              "https://github.com/${{ inputs.device_tree_repo }}.git" \
+              "${WORK_DIR}/device-tree"
+
+            if [[ -f "${WORK_DIR}/device-tree/proprietary-files.txt" ]]; then
+              SOURCE_LIST="${WORK_DIR}/device-tree/proprietary-files.txt"
+              echo "Using device-tree proprietary-files.txt"
+            fi
+          fi
+
+          # --------------------------------------------------------
+          # Fall back to Dumber's list
+          # --------------------------------------------------------
+          if [[ -z "${SOURCE_LIST}" ]]; then
+            if [[ -f "${DUMP_DIR}/proprietary-files.txt" ]]; then
+              SOURCE_LIST="${DUMP_DIR}/proprietary-files.txt"
+              echo "Using dump proprietary-files.txt"
+            fi
+          fi
+
+          if [[ -z "${SOURCE_LIST}" ]]; then
+            echo "ERROR: No proprietary-files.txt found."
+            exit 1
+          fi
+
+          cp "${SOURCE_LIST}" "${WORK_DIR}/proprietary-files.stock.txt"
+
+          echo
+          echo "Original proprietary-files.txt:"
+          wc -l "${WORK_DIR}/proprietary-files.stock.txt"
+
+          echo
+          echo "First entries:"
+          sed -n '1,80p' "${WORK_DIR}/proprietary-files.stock.txt"
+
+      # ------------------------------------------------------------
+      # 8. Normalize proprietary-files.txt
+      # ------------------------------------------------------------
+      - name: 🧹 Normalize proprietary file list
+        shell: bash
+        run: |
+          set -eux
+
+          INPUT="${WORK_DIR}/proprietary-files.stock.txt"
+          OUTPUT="${WORK_DIR}/proprietary-files.txt"
+
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          src = Path("${WORK_DIR}/proprietary-files.stock.txt")
+          dst = Path("${WORK_DIR}/proprietary-files.txt")
+
+          lines = src.read_text(errors="ignore").splitlines()
+
+          result = []
+          seen = set()
+
+          for raw in lines:
+              line = raw.strip()
+
+              if not line:
+                  continue
+
+              if line.startswith("#"):
+                  result.append(line)
+                  continue
+
+              # Remove Windows CR
+              line = line.replace("\r", "")
+
+              # Normalize leading slash
+              line = re.sub(r"^/+", "", line)
+
+              # Normalize duplicate slashes
+              line = re.sub(r"/+", "/", line)
+
+              # Normalize whitespace
+              line = line.replace(" ", "")
+
+              # Keep the full source specification for now.
+              source = line
+
+              # Extract source path.
+              source_part = source
+
+              if "|" in source_part:
+                  source_part = source_part.split("|", 1)[0]
+
+              if ":" in source_part:
+                  source_part = source_part.split(":", 1)[0]
+
+              source_part = source_part.lstrip("-")
+
+              # Duplicate source detection.
+              if source_part in seen:
+                  continue
+
+              seen.add(source_part)
+              result.append(line)
+
+          dst.write_text("\n".join(result) + "\n")
+
+          print(f"Input lines : {len(lines)}")
+          print(f"Output lines: {len(result)}")
+          print(f"Unique paths: {len(seen)}")
+          PY
+
+          echo
+          echo "Normalized list:"
+          wc -l "${OUTPUT}"
+
+      # ------------------------------------------------------------
+      # 9. Validate every requested blob against the dump
+      # ------------------------------------------------------------
+      - name: 🔎 Validate blobs against dump
+        shell: bash
+        run: |
+          set -e
+
+          INPUT="${WORK_DIR}/proprietary-files.txt"
+          FOUND="${WORK_DIR}/proprietary-files.valid.txt"
+          MISSING="${WORK_DIR}/missing.txt"
+          ZERO="${WORK_DIR}/zero-byte.txt"
+
+          : > "${FOUND}"
+          : > "${MISSING}"
+          : > "${ZERO}"
+
+          python3 <<'PY'
+          from pathlib import Path
+          import os
+
+          dump = Path("${DUMP_DIR}")
+          inp = Path("${WORK_DIR}/proprietary-files.txt")
+          found = Path("${WORK_DIR}/proprietary-files.valid.txt")
+          missing = Path("${WORK_DIR}/missing.txt")
+          zero = Path("${WORK_DIR}/zero-byte.txt")
+
+          valid = []
+          missing_entries = []
+          zero_entries = []
+
+          for raw in inp.read_text(errors="ignore").splitlines():
+
+              line = raw.strip()
+
+              if not line or line.startswith("#"):
+                  continue
+
+              spec = line
+
+              # Remove optional '-' module marker
+              source = spec.lstrip("-")
+
+              # Remove SHA1
+              source = source.split("|", 1)[0]
+
+              # Source is before ':'
+              source_path = source.split(":", 1)[0]
+
+              source_path = source_path.lstrip("/")
+              source_path = source_path.replace("//", "/")
+
+              candidate = dump / source_path
+
+              # Some Dumber dumps may have partition directory prefixes.
+              candidates = [
+                  candidate,
+                  dump / "system" / source_path,
+                  dump / "system_ext" / source_path,
+                  dump / "product" / source_path,
+                  dump / "vendor" / source_path,
+                  dump / "odm" / source_path,
+              ]
+
+              existing = None
+
+              for c in candidates:
+                  if c.is_file():
+                      existing = c
+                      break
+
+              if existing is None:
+                  missing_entries.append(source_path)
+                  continue
+
+              if existing.stat().st_size == 0:
+                  zero_entries.append(source_path)
+                  continue
+
+              valid.append(line)
+
+          found.write_text("\n".join(valid) + ("\n" if valid else ""))
+          missing.write_text("\n".join(sorted(set(missing_entries))) + ("\n" if missing_entries else ""))
+          zero.write_text("\n".join(sorted(set(zero_entries))) + ("\n" if zero_entries else ""))
+
+          print("VALID   :", len(valid))
+          print("MISSING :", len(set(missing_entries)))
+          print("ZERO    :", len(set(zero_entries)))
+          PY
+
+          echo
+          echo "Missing:"
+          cat "${MISSING}" || true
+
+          echo
+          echo "Zero-byte:"
+          cat "${ZERO}" || true
+
+          if [[ "${{ inputs.strict }}" == "true" ]] && [[ -s "${MISSING}" ]]; then
+            echo
+            echo "ERROR: Missing proprietary blobs detected."
+            echo "The dump does not contain every requested file."
+            exit 1
+          fi
+
+      # ------------------------------------------------------------
+      # 10. Detect duplicate destination paths
+      # ------------------------------------------------------------
+      - name: 🧬 Detect duplicate destinations
+        shell: bash
+        run: |
+          set -eux
+
+          python3 <<'PY'
+          from pathlib import Path
+          from collections import defaultdict
+
+          src = Path("${WORK_DIR}/proprietary-files.valid.txt")
+          report = Path("reports/duplicate-destinations.txt")
+
+          destinations = defaultdict(list)
+
+          for line in src.read_text(errors="ignore").splitlines():
+
+              line = line.strip()
+
+              if not line or line.startswith("#"):
+                  continue
+
+              spec = line.lstrip("-")
+
+              if "|" in spec:
+                  spec = spec.split("|", 1)[0]
+
+              parts = spec.split(":", 1)
+
+              source = parts[0]
+              destination = parts[1] if len(parts) == 2 else source
+
+              destination = destination.lstrip("/")
+
+              destinations[destination].append(source)
+
+          duplicates = {
+              k: v
+              for k, v in destinations.items()
+              if len(v) > 1
+          }
+
+          with report.open("w") as f:
+              for destination, sources in sorted(duplicates.items()):
+                  f.write(f"{destination}\n")
+                  for source in sources:
+                      f.write(f"  <- {source}\n")
+
+          print("Duplicate destinations:", len(duplicates))
+
+          if duplicates:
+              print()
+              print("WARNING: duplicate destinations detected")
+              for destination, sources in list(duplicates.items())[:50]:
+                  print(destination, "<-", sources)
+          PY
+
+      # ------------------------------------------------------------
+      # 11. Remove duplicate destination entries safely
+      # ------------------------------------------------------------
+      - name: 🧹 Deduplicate destination paths
+        shell: bash
+        run: |
+          set -eux
+
+          INPUT="${WORK_DIR}/proprietary-files.valid.txt"
+          OUTPUT="${WORK_DIR}/proprietary-files.clean.txt"
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          src = Path("${WORK_DIR}/proprietary-files.valid.txt")
+          dst = Path("${WORK_DIR}/proprietary-files.clean.txt")
+
+          seen = set()
+          output = []
+
+          for line in src.read_text(errors="ignore").splitlines():
+
+              stripped = line.strip()
+
+              if not stripped:
+                  continue
+
+              if stripped.startswith("#"):
+                  output.append(stripped)
+                  continue
+
+              spec = stripped.lstrip("-")
+
+              sha = ""
+              if "|" in spec:
+                  spec, sha = spec.split("|", 1)
+
+              if ":" in spec:
+                  source, destination = spec.split(":", 1)
+              else:
+                  source = spec
+                  destination = spec
+
+              destination = destination.lstrip("/")
+
+              if destination in seen:
+                  continue
+
+              seen.add(destination)
+
+              # Rebuild original semantics.
+              marker = "-" if stripped.startswith("-") else ""
+
+              rebuilt = marker + source
+
+              if destination != source:
+                  rebuilt += ":" + destination
+
+              if sha:
+                  rebuilt += "|" + sha
+
+              output.append(rebuilt)
+
+          dst.write_text("\n".join(output) + "\n")
+
+          print("Final entries:", len(output))
+          PY
+
+          cp "${WORK_DIR}/proprietary-files.clean.txt" \
+             "${WORK_DIR}/proprietary-files.final.txt"
+
+      # ------------------------------------------------------------
+      # 12. Create Lineage-style temporary device tree
+      # ------------------------------------------------------------
+      - name: 🏗️ Prepare extraction tree
+        shell: bash
+        run: |
+          set -eux
+
+          TREE="${WORK_DIR}/device-tree"
+
+          mkdir -p "${TREE}"
+
+          cp "${WORK_DIR}/proprietary-files.final.txt" \
+             "${TREE}/proprietary-files.txt"
+
+          # --------------------------------------------------------
+          # Modern LineageOS extract-files.py
+          # --------------------------------------------------------
+          cat > "${TREE}/extract-files.py" <<'PY'
+          #!/usr/bin/env -S PYTHONPATH=../../../tools/extract-utils python3
+
+          #
+          # SPDX-License-Identifier: Apache-2.0
+          #
+
+          from extract_utils.main import (
+              ExtractUtils,
+              ExtractUtilsModule,
+          )
+
+          module = ExtractUtilsModule(
+              "spinel",
+              "xiaomi",
+              add_firmware_proprietary_file=True,
+          )
+
+          if __name__ == "__main__":
+              utils = ExtractUtils.device(module)
+              utils.run()
+          PY
+
+          chmod +x "${TREE}/extract-files.py"
+
+          # --------------------------------------------------------
+          # Modern setup-makefiles.py
+          # --------------------------------------------------------
+          cat > "${TREE}/setup-makefiles.py" <<'PY'
+          #!/usr/bin/env -S PYTHONPATH=../../../tools/extract-utils python3
+
+          from extract_utils.main import (
+              ExtractUtils,
+              ExtractUtilsModule,
+          )
+
+          module = ExtractUtilsModule(
+              "spinel",
+              "xiaomi",
+              add_firmware_proprietary_file=True,
+          )
+
+          if __name__ == "__main__":
+              utils = ExtractUtils.device(module)
+              utils.run("--regenerate_makefiles")
+          PY
+
+          chmod +x "${TREE}/setup-makefiles.py"
+
+      # ------------------------------------------------------------
+      # 13. Make dump layout compatible with extract-utils
+      #
+      # We create a normalized source tree containing:
+      #
+      # system/
+      # system_ext/
+      # product/
+      # vendor/
+      # odm/
+      #
+      # and link all available files from the Dumber dump.
+      # ------------------------------------------------------------
+      - name: 🔗 Normalize stock dump layout
+        shell: bash
+        run: |
+          set -eux
+
+          STOCK="${WORK_DIR}/stock"
+
+          rm -rf "${STOCK}"
+          mkdir -p "${STOCK}"
+
+          for partition in \
+            system \
+            system_ext \
+            product \
+            vendor \
+            odm \
+            vendor_dlkm \
+            odm_dlkm \
+            system_dlkm
+          do
+            if [[ -d "${DUMP_DIR}/${partition}" ]]; then
+              ln -s "${DUMP_DIR}/${partition}" \
+                "${STOCK}/${partition}"
+              continue
+            fi
+
+            if [[ -d "${DUMP_DIR}/$partition" ]]; then
+              ln -s "${DUMP_DIR}/$partition" \
+                "${STOCK}/${partition}"
+            fi
+          done
+
+          echo "Normalized dump:"
+          find "${STOCK}" -maxdepth 1 -type l -ls
+
+      # ------------------------------------------------------------
+      # 14. Run Lineage extraction
+      # ------------------------------------------------------------
+      - name: 🧬 Extract proprietary blobs
+        shell: bash
+        working-directory: ${{ env.WORK_DIR }}/device-tree
+        env:
+          PYTHONPATH: ${{ github.workspace }}/lineage_tools/extract-utils
+        run: |
+          set -eux
+
+          echo "=========================================="
+          echo "Starting LineageOS extract-utils"
+          echo "=========================================="
+
+          python3 -m pip install --upgrade pip setuptools wheel
+
+          # Make Lineage extraction utilities importable.
+          export PYTHONPATH="${{ github.workspace }}/lineage_tools/extract-utils"
+
+          # Source is the complete normalized stock dump.
+          python3 ./extract-files.py \
+            "${{ env.WORK_DIR }}/stock"
+
+      # ------------------------------------------------------------
+      # 15. Generate vendor makefiles
+      # ------------------------------------------------------------
+      - name: 🏭 Generate vendor makefiles
+        shell: bash
+        working-directory: ${{ env.WORK_DIR }}/device-tree
+        env:
+          PYTHONPATH: ${{ github.workspace }}/lineage_tools/extract-utils
+        run: |
+          set -eux
+
+          export PYTHONPATH="${{ github.workspace }}/lineage_tools/extract-utils"
+
+          python3 ./setup-makefiles.py || true
+
+          echo
+          echo "Generated files:"
+          find "${WORK_DIR}" \
+            -maxdepth 6 \
+            -type f \
+            \( \
+              -name "Android.bp" -o \
+              -name "*.mk" -o \
+              -name "proprietary-files.txt" \
+            \) \
+            | sort \
+            | head -300
+
+      # ------------------------------------------------------------
+      # 16. Locate generated vendor tree
+      # ------------------------------------------------------------
+      - name: 📦 Locate generated vendor tree
+        shell: bash
+        run: |
+          set -eux
+
+          echo "Searching for vendor tree..."
+
+          find "${WORK_DIR}" \
+            -type d \
+            -path "*/vendor/xiaomi/spinel" \
+            -print
+
+          FOUND="$(find "${WORK_DIR}" \
+            -type d \
+            -path "*/vendor/xiaomi/spinel" \
+            | head -1 || true)"
+
+          if [[ -z "${FOUND}" ]]; then
+            echo "ERROR: extract-utils did not generate vendor/xiaomi/spinel"
+            echo
+            echo "Workspace tree:"
+            find "${WORK_DIR}" \
+              -maxdepth 6 \
+              -type d \
+              | sort \
+              | head -500
+            exit 1
+          fi
+
+          echo "${FOUND}" > "${WORK_DIR}/vendor_path.txt"
+
+      # ------------------------------------------------------------
+      # 17. Copy vendor tree to repository output
+      # ------------------------------------------------------------
+      - name: 📥 Copy vendor tree
+        shell: bash
+        run: |
+          set -eux
+
+          FOUND="$(cat "${WORK_DIR}/vendor_path.txt")"
+
+          rm -rf "${OUTPUT_VENDOR}"
+          mkdir -p "${OUTPUT_VENDOR}"
+
+          rsync -a \
+            --delete \
+            "${FOUND}/" \
+            "${OUTPUT_VENDOR}/"
+
+          echo
+          echo "Vendor tree:"
+          find "${OUTPUT_VENDOR}" \
+            -type f \
+            | sort \
+            | head -300
+
+      # ------------------------------------------------------------
+      # 18. Remove accidental generated junk
+      # ------------------------------------------------------------
+      - name: 🧹 Clean vendor tree
+        shell: bash
+        run: |
+          set -eux
+
+          find "${OUTPUT_VENDOR}" \
+            -type f \
+            \( \
+              -name "*.pyc" -o \
+              -name "*.pyo" -o \
+              -name ".DS_Store" -o \
+              -name "*.tmp" \
+            \) \
+            -delete
+
+          find "${OUTPUT_VENDOR}" \
+            -type d \
+            -name "__pycache__" \
+            -prune \
+            -exec rm -rf {} +
+
+          # Never ship Git metadata inside vendor tree.
+          find "${OUTPUT_VENDOR}" \
+            -type d \
+            -name ".git" \
+            -prune \
+            -exec rm -rf {} +
+
+      # ------------------------------------------------------------
+      # 19. Verify duplicate files by SHA1
+      # ------------------------------------------------------------
+      - name: 🔐 Analyze duplicate blobs
+        shell: bash
+        run: |
+          set -eux
+
+          python3 <<'PY'
+          from pathlib import Path
+          from collections import defaultdict
+          import hashlib
+
+          root = Path("${OUTPUT_VENDOR}")
+
+          hashes = defaultdict(list)
+
+          for f in root.rglob("*"):
+              if not f.is_file():
+                  continue
+
+              h = hashlib.sha1()
+              with f.open("rb") as fd:
+                  while True:
+                      chunk = fd.read(1024 * 1024)
+                      if not chunk:
+                          break
+                      h.update(chunk)
+
+              hashes[h.hexdigest()].append(
+                  str(f.relative_to(root))
+              )
+
+          duplicate_groups = {
+              k: v
+              for k, v in hashes.items()
+              if len(v) > 1
+          }
+
+          report = Path("reports/duplicate-blobs.sha1.txt")
+
+          with report.open("w") as out:
+              for sha, files in sorted(duplicate_groups.items()):
+                  out.write(f"{sha}\n")
+                  for f in files:
+                      out.write(f"  {f}\n")
+                  out.write("\n")
+
+          print("Files       :", sum(map(len, hashes.values())))
+          print("SHA1 groups :", len(hashes))
+          print("Duplicates  :", len(duplicate_groups))
+          PY
+
+      # ------------------------------------------------------------
+      # 20. Check broken symlinks
+      # ------------------------------------------------------------
+      - name: 🔗 Check broken symlinks
+        shell: bash
+        run: |
+          set -eux
+
+          BROKEN="reports/broken-symlinks.txt"
+
+          find "${OUTPUT_VENDOR}" \
+            -type l \
+            -print \
+            | while read -r link; do
+                if [[ ! -e "${link}" ]]; then
+                  echo "${link}" >> "${BROKEN}"
+                fi
+              done
+
+          if [[ -s "${BROKEN}" ]]; then
+            echo "Broken symlinks:"
+            cat "${BROKEN}"
+          else
+            echo "No broken symlinks."
+          fi
+
+      # ------------------------------------------------------------
+      # 21. ELF dependency audit
+      # ------------------------------------------------------------
+      - name: 🧪 Audit ELF dependencies
+        shell: bash
+        run: |
+          set -e
+
+          REPORT="reports/elf-dependencies.txt"
+
+          : > "${REPORT}"
+
+          echo "ELF dependency audit" >> "${REPORT}"
+          echo "====================" >> "${REPORT}"
+          echo >> "${REPORT}"
+
+          while IFS= read -r file; do
+
+            if ! file "${file}" | grep -q "ELF"; then
+              continue
+            fi
+
+            echo "===== ${file#${OUTPUT_VENDOR}/} =====" >> "${REPORT}"
+
+            if command -v llvm-readelf >/dev/null 2>&1; then
+              llvm-readelf -d "${file}" 2>/dev/null \
+                | grep "NEEDED" \
+                >> "${REPORT}" || true
+            else
+              readelf -d "${file}" 2>/dev/null \
+                | grep "NEEDED" \
+                >> "${REPORT}" || true
+            fi
+
+            echo >> "${REPORT}"
+
+          done < <(find "${OUTPUT_VENDOR}" -type f)
+
+          echo "ELF audit complete."
+
+      # ------------------------------------------------------------
+      # 22. Count and size report
+      # ------------------------------------------------------------
+      - name: 📊 Generate final report
+        shell: bash
+        run: |
+          set -eux
+
+          REPORT="reports/vendor-summary.txt"
+
+          {
+            echo "=========================================="
+            echo " LineageOS Vendor Tree Summary"
+            echo "=========================================="
+            echo
+            echo "Device       : ${DEVICE}"
+            echo "Vendor       : ${VENDOR}"
+            echo "Dump         : ${{ inputs.dump_repo }}"
+            echo "Dump branch  : ${{ inputs.dump_branch }}"
+            echo "Lineage      : ${{ inputs.lineage_branch }}"
+            echo
+            echo "Vendor path:"
+            echo "${OUTPUT_VENDOR}"
+            echo
+            echo "Vendor size:"
+            du -sh "${OUTPUT_VENDOR}"
+            echo
+            echo "File count:"
+            find "${OUTPUT_VENDOR}" -type f | wc -l
+            echo
+            echo "Symlink count:"
+            find "${OUTPUT_VENDOR}" -type l | wc -l
+            echo
+            echo "Android.bp files:"
+            find "${OUTPUT_VENDOR}" -name "Android.bp" | wc -l
+            echo
+            echo "Makefiles:"
+            find "${OUTPUT_VENDOR}" -name "*.mk" | wc -l
+            echo
+            echo "Proprietary file list:"
+            wc -l "${WORK_DIR}/proprietary-files.final.txt"
+            echo
+            echo "Missing:"
+            if [[ -s "${WORK_DIR}/missing.txt" ]]; then
+              wc -l "${WORK_DIR}/missing.txt"
+            else
+              echo "0"
+            fi
+            echo
+            echo "Zero byte:"
+            if [[ -s "${WORK_DIR}/zero-byte.txt" ]]; then
+              wc -l "${WORK_DIR}/zero-byte.txt"
+            else
+              echo "0"
+            fi
+            echo
+            echo "=========================================="
+          } | tee "${REPORT}"
+
+      # ------------------------------------------------------------
+      # 23. Copy important audit files into vendor tree
+      # ------------------------------------------------------------
+      - name: 📜 Save extraction metadata
+        shell: bash
+        run: |
+          set -eux
+
+          mkdir -p "${OUTPUT_VENDOR}/.extraction"
+
+          cp "${WORK_DIR}/proprietary-files.final.txt" \
+             "${OUTPUT_VENDOR}/.extraction/proprietary-files.txt"
+
+          cp "${WORK_DIR}/missing.txt" \
+             "${OUTPUT_VENDOR}/.extraction/missing.txt"
+
+          cp "${WORK_DIR}/zero-byte.txt" \
+             "${OUTPUT_VENDOR}/.extraction/zero-byte.txt"
+
+          cp reports/vendor-summary.txt \
+             "${OUTPUT_VENDOR}/.extraction/vendor-summary.txt"
+
+      # ------------------------------------------------------------
+      # 24. Package vendor tree
+      # ------------------------------------------------------------
+      - name: 📦 Package vendor tree
+        shell: bash
+        run: |
+          set -eux
+
+          tar \
+            --sort=name \
+            --mtime='UTC 2020-01-01' \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            -czf \
+            "vendor-${DEVICE}-${{ inputs.dump_branch }}.tar.gz" \
+            "vendor/xiaomi/spinel"
+
+          sha256sum \
+            "vendor-${DEVICE}-${{ inputs.dump_branch }}.tar.gz" \
+            | tee \
+            "vendor-${DEVICE}-${{ inputs.dump_branch }}.sha256"
+
+      # ------------------------------------------------------------
+      # 25. Commit generated vendor tree
+      # ------------------------------------------------------------
+      - name: 🚀 Commit vendor tree
+        if: ${{ inputs.commit_vendor }}
+        shell: bash
+        run: |
+          set -eux
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            "vendor/xiaomi/spinel"
+
+          git status --short
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit \
+            -m "${{ inputs.commit_message }}"
+
+          git push
+
+      # ------------------------------------------------------------
+      # 26. Upload complete vendor tree
+      # ------------------------------------------------------------
+      - name: 📤 Upload vendor tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: vendor-${{ env.DEVICE }}-${{ inputs.dump_branch }}
+          path: |
+            vendor/xiaomi/spinel
+            reports
+            vendor-${{ env.DEVICE }}-${{ inputs.dump_branch }}.tar.gz
+            vendor-${{ env.DEVICE }}-${{ inputs.dump_branch }}.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      # ------------------------------------------------------------
+      # 27. Final output
+      # ------------------------------------------------------------
+      - name: ✅ Final summary
+        shell: bash
+        run: |
+          set -eux
+
+          echo
+          echo "=========================================="
+          echo "          ✅ VENDOR TREE READY"
+          echo "=========================================="
+          echo
+          echo "Device:"
+          echo "  ${DEVICE}"
+          echo
+          echo "Stock base:"
+          echo "  OS2.0.212.0.VPGMIXM"
+          echo "  Android 15"
+          echo "  Kernel 5.10.236"
+          echo "  MT6789"
+          echo
+          echo "Vendor:"
+          echo "  vendor/xiaomi/spinel"
+          echo
+          echo "Size:"
+          du -sh "${OUTPUT_VENDOR}"
+          echo
+          echo "Files:"
+          find "${OUTPUT_VENDOR}" -type f | wc -l
+          echo
+          echo "Archive:"
+          echo "  vendor-${DEVICE}-${{ inputs.dump_branch }}.tar.gz"
+          echo
+          echo "=========================================="
