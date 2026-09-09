@@ -1,0 +1,12 @@
+* text=auto eol=lf
+*.so binary
+*.apk binary
+*.jar binary
+*.img binary
+*.bin binary
+*.dat binary
+*.dat.bz2 binary
+*.dat.xz binary
+*.axml binary
+*.ttf binary
+*.otf binary

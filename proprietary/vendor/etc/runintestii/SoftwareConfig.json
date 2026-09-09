@@ -1,0 +1,125 @@
+{
+	"itemConfig": [{
+			"Action": "com.factory.runintestii.QMESAtest",
+			"Support": false,
+			"IsForeGround": false,
+			"RunAlone": false,
+			"Name": "other_QMESA",
+			"ParamOneCycle": 1,
+			"ParameOneCycleTime": "1200000",
+			"Parameter": {}
+		},
+		{
+			"Action": "com.factory.runintestii.emmctest",
+			"Support": true,
+			"IsForeGround": false,
+			"RunAlone": false,
+			"Name": "other_EMMCtest",
+			"support_ghr": true,
+			"ParamOneCycle": 1,
+			"ParameOneCycleTime": "1200000",
+			"Parameter": {
+				"EmmcReadWriteWaittime": 40,
+				"remained_space_rate": 0.2
+			}
+		},
+		{
+			"Action": "com.factory.runintestii.vibrator",
+			"Support": true,
+			"IsForeGround": false,
+			"RunAlone": false,
+			"Name": "software_Vibrator",
+			"ParamOneCycle": 1,
+			"ParameOneCycleTime": "900000",
+			"Parameter": {
+				"vibrator_time": 2000,
+				"stop_vibrator_time": 1000
+			}
+		},
+		{
+			"Action": "com.factory.runintestii.patestMTK",
+			"Support": true,
+			"IsForeGround": true,
+			"RunAlone": false,
+			"Name": "other_patest_MTK",
+			"ParamOneCycle": 4,
+			"ParameOneCycleTime": "300000",
+			"Parameter": {
+				"PaTestAT": [{
+						"Support": true,
+						"mRatName": "GSM850",
+						"RatCmdInit": "AT+ERAT=0",
+						"RatCmdStart": "AT+ERFTX=2,1,249,4100,128,5,6,0",
+						"RatCmdStop": "AT+ERFTX=2,0",
+						"RtPowerRead": "AT+ERFTX=2,3,128,249",
+						"RatPowerSet": "30",
+						"RatCheckState": true,
+						"RatSendstate": false,
+						"Limit": 2
+					},
+					{
+						"Support": true,
+						"mRatName": "GSM1800",
+						"RatCmdInit": "AT+ERAT=0",
+						"RatCmdStart": "AT+ERFTX=2,1,698,4100,8,5,1,0",
+						"RatCmdStop": "AT+ERFTX=2,0",
+						"RtPowerRead": "AT+ERFTX=2,3,8,698",
+						"RatPowerSet": "27",
+						"RatCheckState": true,
+						"RatSendstate": false,
+						"Limit": 2
+					},
+					{
+						"Support": true,
+						"mRatName": "LTE B1",
+						"RatCmdInit": "AT+ERAT=6.4",
+						"RatCmdStart": "AT+ERFTX=6,0,1,1,3,19730,1,0,0,0,50,0,21",
+						"RatCmdStop": "AT+ERFTX=6,0,0",
+						"RtPowerRead": "AT+ERFTX=6,1",
+						"RatPowerSet": "21",
+						"RatCheckState": true,
+						"RatSendstate": false,
+						"Limit": 2
+					},
+					{
+						"Support": true,
+						"mRatName": "LTE B5",
+						"RatCmdInit": "AT+ERAT=6.4",
+						"RatCmdStart": "AT+ERFTX=6,0,1,5,2,8365,1,0,0,0,25,0,21",
+						"RatCmdStop": "AT+ERFTX=6,0,0",
+						"RtPowerRead": "AT+ERFTX=6,1",
+						"RatPowerSet": "21",
+						"RatCheckState": true,
+						"RatSendstate": false,
+						"Limit": 2
+					},
+					{
+						"Support": true,
+						"mRatName": "LTE B7",
+						"RatCmdInit": "AT+ERAT=6.4",
+						"RatCmdStart": "AT+ERFTX=6,0,1,7,3,25070,1,0,0,0,50,0,21",
+						"RatCmdStop": "AT+ERFTX=6,0,0",
+						"RtPowerRead": "AT+ERFTX=6,1",
+						"RatPowerSet": "21",
+						"RatCheckState": true,
+						"RatSendstate": false,
+						"Limit": 2
+					}
+				]
+			}
+		},
+		{
+			"Action": "com.factory.runintestii.fingertest",
+			"Support": true,
+			"IsForeGround": false,
+			"RunAlone": false,
+			"Name": "software_FingerTest",
+			"ParamOneCycle": 1100,
+			"ParameOneCycleTime": "",
+			"Parameter": {
+				"interval": 1000
+			}
+
+		}
+	]
+}

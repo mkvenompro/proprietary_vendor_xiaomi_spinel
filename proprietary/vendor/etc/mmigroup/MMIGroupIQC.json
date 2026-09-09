@@ -1,0 +1,31 @@
+{
+  "itemConfig": [
+    {
+      "showName": "TpOpenShort"
+    },
+    {
+      "showName": "Backlight"
+    },
+    {
+      "showName": "LCD",
+      "action": "com.mmigroup.action.LCD",
+      "support": true,
+      "support_autoTest_autopass": false,
+      "paramconfig": {
+        "auto_switch": false,
+        "first_three_delay": 2000,
+        "lcd_pic": [
+            "Color_R=2000",
+            "Color_G=2000",
+            "Color_B=2000",
+            "Color_W=2000",
+            "Color_GR127=2000",
+            "Color_BL=2000"
+        ]
+      }
+    },
+    {
+      "showName": "TouchScreen"
+    }
+  ]
+}
