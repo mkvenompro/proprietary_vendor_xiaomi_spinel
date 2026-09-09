@@ -23,7 +23,7 @@ jobs:
     steps:
 
       # ============================================================
-      # 1. CHECKOUT
+      # CHECKOUT
       # ============================================================
 
       - name: 📥 Checkout vendor repository
@@ -33,7 +33,7 @@ jobs:
           lfs: true
 
       # ============================================================
-      # 2. INSTALL DEPENDENCIES
+      # DEPENDENCIES
       # ============================================================
 
       - name: 🧰 Install dependencies
@@ -63,13 +63,17 @@ jobs:
 
           git lfs install
 
-          echo "===== VERSIONS ====="
+          echo
+          echo "=========================================="
+          echo "VERSIONS"
+          echo "=========================================="
+
           python3 --version
           git --version
           git-lfs --version
 
       # ============================================================
-      # 3. CLEAN WORKSPACE
+      # CLEAN
       # ============================================================
 
       - name: 🧹 Clean workspace
@@ -88,7 +92,7 @@ jobs:
           mkdir -p reports
 
       # ============================================================
-      # 4. CLONE STOCK DUMP
+      # DUMBER
       # ============================================================
 
       - name: 📦 Clone stock dump
@@ -108,19 +112,28 @@ jobs:
           git lfs pull
 
           echo
-          echo "===== DUMBER COMMIT ====="
+          echo "=========================================="
+          echo "DUMBER COMMIT"
+          echo "=========================================="
+
           git rev-parse HEAD
 
           echo
-          echo "===== DUMBER BRANCH ====="
+          echo "=========================================="
+          echo "DUMBER BRANCH"
+          echo "=========================================="
+
           git branch --show-current
 
           echo
-          echo "===== DUMBER SIZE ====="
+          echo "=========================================="
+          echo "DUMBER SIZE"
+          echo "=========================================="
+
           du -sh .
 
       # ============================================================
-      # 5. VERIFY STOCK DUMP
+      # VERIFY DUMBER
       # ============================================================
 
       - name: 🔎 Verify stock dump
@@ -133,7 +146,11 @@ jobs:
           test -d stock_dump/odm_dlkm
           test -f stock_dump/proprietary-files.txt
 
-          echo "===== STOCK DUMP ROOT ====="
+          echo
+          echo "=========================================="
+          echo "STOCK DUMP ROOT"
+          echo "=========================================="
+
           find stock_dump \
             -maxdepth 1 \
             -mindepth 1 \
@@ -141,15 +158,21 @@ jobs:
             | sort
 
           echo
-          echo "===== PROPRIETARY FILE COUNT ====="
+          echo "=========================================="
+          echo "PROPRIETARY FILE COUNT"
+          echo "=========================================="
+
           wc -l stock_dump/proprietary-files.txt
 
           echo
-          echo "===== README ====="
+          echo "=========================================="
+          echo "README"
+          echo "=========================================="
+
           head -60 stock_dump/README.md || true
 
       # ============================================================
-      # 6. CLONE LINEAGE EXTRACT UTILS
+      # EXTRACT UTILS
       # ============================================================
 
       - name: 🧬 Clone Lineage extract-utils
@@ -166,19 +189,26 @@ jobs:
             extract_tree/tools/extract-utils
 
           echo
-          echo "===== EXTRACT UTILS COMMIT ====="
+          echo "=========================================="
+          echo "EXTRACT UTILS COMMIT"
+          echo "=========================================="
+
           git -C extract_tree/tools/extract-utils rev-parse HEAD
 
           echo
-          echo "===== EXTRACT UTILS FILES ====="
-          find extract_tree/tools/extract-utils/extract_utils \
-            -maxdepth 1 \
+          echo "=========================================="
+          echo "EXTRACT UTILS STRUCTURE"
+          echo "=========================================="
+
+          find \
+            extract_tree/tools/extract-utils/extract_utils \
+            -maxdepth 2 \
             -type f \
-            -printf '%f\n' \
+            -printf '%P\n' \
             | sort
 
       # ============================================================
-      # 7. CREATE DEVICE TREE
+      # CREATE TREE
       # ============================================================
 
       - name: 📁 Create extraction tree
@@ -191,7 +221,7 @@ jobs:
             extract_tree/vendor/xiaomi/spinel
 
       # ============================================================
-      # 8. COPY ORIGINAL PROPRIETARY FILES
+      # COPY ORIGINAL LIST
       # ============================================================
 
       - name: 📋 Copy original proprietary-files.txt
@@ -203,29 +233,13 @@ jobs:
             stock_dump/proprietary-files.txt \
             extract_tree/device/xiaomi/spinel/proprietary-files.original.txt
 
+          echo
           echo "Original entries:"
           wc -l \
             extract_tree/device/xiaomi/spinel/proprietary-files.original.txt
 
       # ============================================================
-      # 9. CLEAN PROPRIETARY LIST USING PYTHON
-      #
-      # IMPORTANT:
-      #
-      # Dumber's "-" means "package" to extract-utils.
-      #
-      # We intentionally remove ALL leading "-" markers.
-      #
-      # extract-utils with check_elf=True will automatically classify:
-      #   *.apk
-      #   *.jar
-      #   *.apex
-      #   *.so
-      #   binaries
-      #
-      # correctly.
-      #
-      # system/system_ext/product are not part of vendor tree.
+      # NORMALIZE LIST
       # ============================================================
 
       - name: 🧹 Normalize proprietary-files.txt
@@ -237,10 +251,12 @@ jobs:
           from pathlib import Path
 
           stock = Path("stock_dump")
+
           original = Path(
               "extract_tree/device/xiaomi/spinel/"
               "proprietary-files.original.txt"
           )
+
           output = Path(
               "extract_tree/device/xiaomi/spinel/"
               "proprietary-files.txt"
@@ -254,10 +270,12 @@ jobs:
           removed_invalid = []
           kept = []
 
-          for raw in original.read_text(
+          lines = original.read_text(
               encoding="utf-8",
               errors="replace"
-          ).splitlines():
+          ).splitlines()
+
+          for raw in lines:
 
               line = raw.strip()
 
@@ -267,10 +285,8 @@ jobs:
               if line.startswith("#"):
                   continue
 
-              # --------------------------------------------------
-              # REMOVE ALL LINEAGE PACKAGE MARKERS
-              # --------------------------------------------------
-
+              # Remove Lineage package markers ONLY for this
+              # generated vendor tree.
               while line.startswith("-"):
                   line = line[1:]
 
@@ -279,33 +295,25 @@ jobs:
               if not line:
                   continue
 
-              # --------------------------------------------------
-              # REMOVE SHA1
-              # --------------------------------------------------
-
               path_part = line.split("|", 1)[0]
 
-              # --------------------------------------------------
-              # SOURCE / DESTINATION
-              # --------------------------------------------------
-
               source = path_part.split(":", 1)[0].lstrip("/")
-              destination = (
-                  path_part.split(":", 1)[1].lstrip("/")
-                  if ":" in path_part
-                  else source
-              )
+
+              if ":" in path_part:
+                  destination = (
+                      path_part.split(":", 1)[1].lstrip("/")
+                  )
+              else:
+                  destination = source
 
               if not source:
                   removed_invalid.append(raw)
                   continue
 
-              # --------------------------------------------------
-              # REMOVE SYSTEM PARTITIONS
-              # --------------------------------------------------
-
               top = source.split("/", 1)[0]
 
+              # We are generating the vendor tree only.
+              # system/system_ext/product blobs must stay out.
               if top in {
                   "system",
                   "system_ext",
@@ -314,40 +322,23 @@ jobs:
                   removed_system.append(source)
                   continue
 
-              # --------------------------------------------------
-              # REMOVE KNOWN STOCK-ONLY SETTINGS
-              # --------------------------------------------------
-
-              if source == (
-                  "system_ext/priv-app/Settings/Settings.apk"
-              ):
-                  removed_system.append(source)
-                  continue
-
-              # --------------------------------------------------
-              # SOURCE MUST EXIST
-              # --------------------------------------------------
-
               source_path = stock / source
 
               if not source_path.exists():
                   removed_missing.append(source)
                   continue
 
-              # --------------------------------------------------
-              # KEEP WITHOUT LEADING "-"
-              #
-              # Preserve SHA1 if present.
-              # Preserve destination if present.
-              # --------------------------------------------------
-
               kept.append(line)
 
-          # Remove exact duplicate destinations while preserving order.
+          # --------------------------------------------------------
+          # Remove duplicate destinations.
+          # --------------------------------------------------------
+
           final_lines = []
           seen_destinations = set()
 
           for line in kept:
+
               path_part = line.split("|", 1)[0]
 
               if ":" in path_part:
@@ -370,30 +361,31 @@ jobs:
               encoding="utf-8"
           )
 
+          # --------------------------------------------------------
+          # Reports
+          # --------------------------------------------------------
+
           Path(
               "reports/removed-system.txt"
           ).write_text(
-              "\n".join(removed_system) + (
-                  "\n" if removed_system else ""
-              ),
+              "\n".join(removed_system) +
+              ("\n" if removed_system else ""),
               encoding="utf-8"
           )
 
           Path(
               "reports/removed-missing.txt"
           ).write_text(
-              "\n".join(removed_missing) + (
-                  "\n" if removed_missing else ""
-              ),
+              "\n".join(removed_missing) +
+              ("\n" if removed_missing else ""),
               encoding="utf-8"
           )
 
           Path(
               "reports/removed-invalid.txt"
           ).write_text(
-              "\n".join(removed_invalid) + (
-                  "\n" if removed_invalid else ""
-              ),
+              "\n".join(removed_invalid) +
+              ("\n" if removed_invalid else ""),
               encoding="utf-8"
           )
 
@@ -410,7 +402,7 @@ jobs:
           ==========================================
 
           Original:
-            {len(original.read_text(encoding="utf-8", errors="replace").splitlines())}
+            {len(lines)}
 
           Kept:
             {len(final_lines)}
@@ -458,7 +450,7 @@ jobs:
           PY
 
       # ============================================================
-      # 10. STRICT PROPRIETARY LIST SANITY CHECK
+      # VALIDATE LIST
       # ============================================================
 
       - name: 🧪 Validate proprietary-files.txt
@@ -487,6 +479,7 @@ jobs:
               ).splitlines(),
               1
           ):
+
               line = raw.strip()
 
               if not line or line.startswith("#"):
@@ -498,7 +491,11 @@ jobs:
                   )
 
               path_part = line.split("|", 1)[0]
-              source = path_part.split(":", 1)[0].lstrip("/")
+
+              source = path_part.split(
+                  ":",
+                  1
+              )[0].lstrip("/")
 
               top = source.split("/", 1)[0]
 
@@ -511,7 +508,11 @@ jobs:
                       f"{number}: {line}"
                   )
 
-              if not Path("stock_dump", source).exists():
+              if not Path(
+                  "stock_dump",
+                  source
+              ).exists():
+
                   missing.append(
                       f"{number}: {source}"
                   )
@@ -532,21 +533,39 @@ jobs:
           )
 
           if bad_markers:
-              print("ERROR: leading '-' still exists:")
-              print("\n".join(bad_markers[:100]))
+              print()
+              print(
+                  "ERROR: leading '-' still exists:"
+              )
+              print(
+                  "\n".join(
+                      bad_markers[:100]
+                  )
+              )
               raise SystemExit(1)
 
           if bad_partitions:
+              print()
               print(
-                  "ERROR: system/product/system_ext "
-                  "entries still exist:"
+                  "ERROR: forbidden partition entries:"
               )
-              print("\n".join(bad_partitions[:100]))
+              print(
+                  "\n".join(
+                      bad_partitions[:100]
+                  )
+              )
               raise SystemExit(1)
 
           if missing:
-              print("ERROR: missing sources:")
-              print("\n".join(missing[:100]))
+              print()
+              print(
+                  "ERROR: missing sources:"
+              )
+              print(
+                  "\n".join(
+                      missing[:100]
+                  )
+              )
               raise SystemExit(1)
 
           print()
@@ -556,7 +575,7 @@ jobs:
           PY
 
       # ============================================================
-      # 11. CREATE extract-files.py
+      # CREATE EXTRACT-FILES.PY
       # ============================================================
 
       - name: 🐍 Create extract-files.py
@@ -565,10 +584,16 @@ jobs:
           set -euxo pipefail
 
           cat > extract_tree/device/xiaomi/spinel/extract-files.py <<'PY'
-          #!/usr/bin/env python3
+          #!/usr/bin/env -S PYTHONPATH=../../../tools/extract-utils python3
 
-          from extract_utils import ExtractUtils
-          from extract_utils.module import ExtractUtilsModule
+          #
+          # SPDX-License-Identifier: Apache-2.0
+          #
+
+          from extract_utils.main import (
+              ExtractUtils,
+              ExtractUtilsModule,
+          )
 
           DEVICE = "spinel"
           VENDOR = "xiaomi"
@@ -579,18 +604,24 @@ jobs:
               check_elf=True,
           )
 
-          ExtractUtils.device(module).run()
+          if __name__ == "__main__":
+              utils = ExtractUtils.device(module)
+              utils.run()
           PY
 
           chmod +x \
             extract_tree/device/xiaomi/spinel/extract-files.py
 
-          echo "===== extract-files.py ====="
+          echo
+          echo "=========================================="
+          echo "extract-files.py"
+          echo "=========================================="
+
           cat \
             extract_tree/device/xiaomi/spinel/extract-files.py
 
       # ============================================================
-      # 12. TEST EXTRACT UTILS IMPORT
+      # TEST IMPORTS
       # ============================================================
 
       - name: 🧪 Test extract-utils imports
@@ -602,8 +633,40 @@ jobs:
           export PYTHONPATH="$PWD/tools/extract-utils"
 
           python3 - <<'PY'
-          from extract_utils import ExtractUtils
-          from extract_utils.module import ExtractUtilsModule
+          import extract_utils
+
+          from extract_utils.main import (
+              ExtractUtils,
+              ExtractUtilsModule,
+          )
+
+          from extract_utils.file import (
+              FileList,
+          )
+
+          print("==========================================")
+          print("EXTRACT-UTILS IMPORT TEST")
+          print("==========================================")
+
+          print(
+              "extract_utils:",
+              extract_utils.__file__
+          )
+
+          print(
+              "ExtractUtils:",
+              ExtractUtils
+          )
+
+          print(
+              "ExtractUtilsModule:",
+              ExtractUtilsModule
+          )
+
+          print(
+              "FileList:",
+              FileList
+          )
 
           module = ExtractUtilsModule(
               "spinel",
@@ -611,17 +674,19 @@ jobs:
               check_elf=True,
           )
 
-          print("ExtractUtils import: OK")
-          print("ExtractUtilsModule import: OK")
+          print()
           print("Device:", module.device)
           print("Vendor:", module.vendor)
           print("check_elf:", module.check_elf)
+
+          print()
+          print("==========================================")
+          print("IMPORT TEST: PASS")
+          print("==========================================")
           PY
 
       # ============================================================
-      # 13. DRY-RUN PARSE PROPRIETARY LIST
-      #
-      # This catches extract-utils parser problems BEFORE extraction.
+      # DRY RUN PARSER
       # ============================================================
 
       - name: 🧪 Dry-run proprietary parser
@@ -635,31 +700,59 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          from extract_utils.file import FileList
+          from extract_utils.file import (
+              FileList,
+          )
 
           path = Path(
-              "device/xiaomi/spinel/proprietary-files.txt"
+              "device/xiaomi/spinel/"
+              "proprietary-files.txt"
           )
 
           file_list = FileList(
               check_elf=True
           )
 
-          file_list.add_from_file(str(path))
+          file_list.add_from_file(
+              str(path)
+          )
 
-          print("===== EXTRACT-UTILS PARSER TEST =====")
-          print("All files:", len(list(file_list.all_files)))
-          print("Package files:", len(list(file_list.package_files)))
-          print("Copy files:", len(list(file_list.copy_files)))
-          print("Boot jars:", len(list(file_list.boot_jars)))
-          print("Symlinks:", len(list(file_list.package_symlinks)))
+          print()
+          print("==========================================")
+          print("EXTRACT-UTILS PARSER TEST")
+          print("==========================================")
+
+          print(
+              "All files:",
+              len(list(file_list.all_files))
+          )
+
+          print(
+              "Package files:",
+              len(list(file_list.package_files))
+          )
+
+          print(
+              "Copy files:",
+              len(list(file_list.copy_files))
+          )
+
+          print(
+              "Boot jars:",
+              len(list(file_list.boot_jars))
+          )
+
+          print(
+              "Symlinks:",
+              len(list(file_list.package_symlinks))
+          )
 
           print()
           print("Parser: PASS")
           PY
 
       # ============================================================
-      # 14. RUN EXTRACTION
+      # EXTRACT
       # ============================================================
 
       - name: 🧬 Extract proprietary blobs
@@ -672,11 +765,13 @@ jobs:
 
           cd device/xiaomi/spinel
 
+          echo
           echo "=========================================="
           echo "STARTING EXTRACTION"
           echo "=========================================="
 
-          python3 extract-files.py ../../../../stock_dump
+          python3 extract-files.py \
+            ../../../../stock_dump
 
           echo
           echo "=========================================="
@@ -684,7 +779,7 @@ jobs:
           echo "=========================================="
 
       # ============================================================
-      # 15. VERIFY GENERATED FILES
+      # VERIFY GENERATED TREE
       # ============================================================
 
       - name: 🔎 Verify generated vendor tree
@@ -710,20 +805,22 @@ jobs:
           test -f \
             extract_tree/vendor/xiaomi/spinel/spinel-vendor.mk
 
+          echo
           echo "=========================================="
           echo "GENERATED VENDOR TREE: PASS"
           echo "=========================================="
 
           echo
-          echo "===== TOP LEVEL ====="
+          echo "===== TOP LEVEL FILES ====="
 
-          find extract_tree/vendor/xiaomi/spinel \
+          find \
+            extract_tree/vendor/xiaomi/spinel \
             -maxdepth 2 \
             -type f \
             | sort
 
       # ============================================================
-      # 16. GENERATED TREE STATS
+      # STATISTICS
       # ============================================================
 
       - name: 📊 Generate vendor tree statistics
@@ -738,8 +835,13 @@ jobs:
             | sort \
             > reports/generated-files.txt
 
-          FILE_COUNT=$(wc -l < reports/generated-files.txt)
-          SIZE=$(du -sh "$ROOT" | cut -f1)
+          FILE_COUNT=$(
+            wc -l < reports/generated-files.txt
+          )
+
+          SIZE=$(
+            du -sh "$ROOT" | cut -f1
+          )
 
           {
             echo "=========================================="
@@ -754,7 +856,7 @@ jobs:
           } | tee reports/generated-stats.txt
 
       # ============================================================
-      # 17. AUDIT DUPLICATE SOURCE PATHS
+      # DUPLICATE SOURCES
       # ============================================================
 
       - name: 🔍 Audit duplicate source paths
@@ -785,8 +887,15 @@ jobs:
 
               line = line.lstrip("-")
 
-              path_part = line.split("|", 1)[0]
-              source = path_part.split(":", 1)[0]
+              path_part = line.split(
+                  "|",
+                  1
+              )[0]
+
+              source = path_part.split(
+                  ":",
+                  1
+              )[0]
 
               sources.append(source)
 
@@ -806,11 +915,14 @@ jobs:
               "w",
               encoding="utf-8"
           ) as f:
+
               for key, value in sorted(
                   duplicates.items(),
                   key=lambda x: (-x[1], x[0])
               ):
-                  f.write(f"{value} {key}\n")
+                  f.write(
+                      f"{value} {key}\n"
+                  )
 
           print(
               "Duplicate source paths:",
@@ -819,7 +931,7 @@ jobs:
           PY
 
       # ============================================================
-      # 18. AUDIT IDENTICAL CONTENT
+      # SHA256 AUDIT
       # ============================================================
 
       - name: 🔐 Audit identical blob contents
@@ -864,12 +976,17 @@ jobs:
               encoding="utf-8"
           ) as f:
 
-              for sha, files in sorted(groups.items()):
+              for sha, files in sorted(
+                  groups.items()
+              ):
+
                   if len(files) > 1:
+
                       f.write(
                           f"{sha}\n"
                           + "\n".join(
-                              f"  {x}" for x in files
+                              f"  {x}"
+                              for x in files
                           )
                           + "\n\n"
                       )
@@ -885,7 +1002,7 @@ jobs:
           PY
 
       # ============================================================
-      # 19. ELF AUDIT
+      # ELF AUDIT
       # ============================================================
 
       - name: 🧪 Audit ELF files
@@ -896,9 +1013,11 @@ jobs:
           : > reports/elf-files.txt
 
           while IFS= read -r -d '' file; do
+
             if file "$file" | grep -q "ELF"; then
               echo "$file" >> reports/elf-files.txt
             fi
+
           done < <(
             find \
               extract_tree/vendor/xiaomi/spinel/proprietary \
@@ -910,7 +1029,7 @@ jobs:
           wc -l < reports/elf-files.txt
 
       # ============================================================
-      # 20. SYMLINK AUDIT
+      # SYMLINK AUDIT
       # ============================================================
 
       - name: 🔗 Audit symlinks
@@ -925,11 +1044,12 @@ jobs:
             | sort \
             > reports/symlinks.txt
 
+          echo
           echo "Symlinks:"
           cat reports/symlinks.txt || true
 
       # ============================================================
-      # 21. VERIFY PROPRIETARY OUTPUT
+      # FINAL EXTRACTION CHECK
       # ============================================================
 
       - name: ✅ Verify every proprietary entry exists
@@ -959,6 +1079,7 @@ jobs:
               ).splitlines(),
               1
           ):
+
               line = raw.strip()
 
               if not line or line.startswith("#"):
@@ -966,14 +1087,20 @@ jobs:
 
               line = line.lstrip("-")
 
-              path_part = line.split("|", 1)[0]
+              path_part = line.split(
+                  "|",
+                  1
+              )[0]
 
               if ":" in path_part:
+
                   source, destination = path_part.split(
                       ":",
                       1
                   )
+
               else:
+
                   source = path_part
                   destination = path_part
 
@@ -982,6 +1109,7 @@ jobs:
               target = root / destination
 
               if not target.exists():
+
                   missing.append(
                       f"{number}: "
                       f"{source} -> {destination}"
@@ -992,9 +1120,8 @@ jobs:
           )
 
           report.write_text(
-              "\n".join(missing) + (
-                  "\n" if missing else ""
-              ),
+              "\n".join(missing) +
+              ("\n" if missing else ""),
               encoding="utf-8"
           )
 
@@ -1004,14 +1131,19 @@ jobs:
           )
 
           if missing:
+
               print()
               print(
                   "ERROR: generated vendor tree "
                   "is missing entries:"
               )
+
               print(
-                  "\n".join(missing[:200])
+                  "\n".join(
+                      missing[:200]
+                  )
               )
+
               raise SystemExit(1)
 
           print()
@@ -1021,7 +1153,7 @@ jobs:
           PY
 
       # ============================================================
-      # 22. PREPARE FINAL VENDOR TREE
+      # PREPARE FINAL TREE
       # ============================================================
 
       - name: 📦 Prepare final vendor tree
@@ -1037,17 +1169,24 @@ jobs:
             extract_tree/vendor/xiaomi/spinel/ \
             generated_vendor/
 
-          echo "===== FINAL VENDOR SIZE ====="
+          echo
+          echo "=========================================="
+          echo "FINAL VENDOR SIZE"
+          echo "=========================================="
+
           du -sh generated_vendor
 
           echo
-          echo "===== FINAL VENDOR FILE COUNT ====="
+          echo "=========================================="
+          echo "FINAL VENDOR FILE COUNT"
+          echo "=========================================="
+
           find generated_vendor \
             -type f \
             | wc -l
 
       # ============================================================
-      # 23. FINAL REPORT
+      # FINAL REPORT
       # ============================================================
 
       - name: 📝 Generate final report
@@ -1065,33 +1204,68 @@ jobs:
             echo "Dumber branch: ${DUMBER_BRANCH}"
             echo "Extract utils: ${EXTRACT_UTILS_BRANCH}"
             echo
-            echo "===== CLEANUP ====="
-            cat reports/proprietary-cleanup.txt
+            echo "=========================================="
+            echo "CLEANUP"
+            echo "=========================================="
+
+            cat \
+              reports/proprietary-cleanup.txt
+
             echo
-            echo "===== GENERATED STATS ====="
-            cat reports/generated-stats.txt
+            echo "=========================================="
+            echo "GENERATED STATS"
+            echo "=========================================="
+
+            cat \
+              reports/generated-stats.txt
+
             echo
-            echo "===== DUPLICATE SOURCES ====="
-            cat reports/duplicate-source-paths.txt || true
+            echo "=========================================="
+            echo "DUPLICATE SOURCES"
+            echo "=========================================="
+
+            cat \
+              reports/duplicate-source-paths.txt \
+              || true
+
             echo
-            echo "===== IDENTICAL CONTENT ====="
-            cat reports/identical-content.txt || true
+            echo "=========================================="
+            echo "IDENTICAL CONTENT"
+            echo "=========================================="
+
+            cat \
+              reports/identical-content.txt \
+              || true
+
             echo
-            echo "===== SYMLINKS ====="
-            cat reports/symlinks.txt || true
+            echo "=========================================="
+            echo "SYMLINKS"
+            echo "=========================================="
+
+            cat \
+              reports/symlinks.txt \
+              || true
+
             echo
-            echo "===== UNEXTRACTED ====="
-            cat reports/unextracted.txt || true
+            echo "=========================================="
+            echo "UNEXTRACTED"
+            echo "=========================================="
+
+            cat \
+              reports/unextracted.txt \
+              || true
+
             echo
             echo "=========================================="
             echo "BUILD COMPLETE"
             echo "=========================================="
+
           } > reports/FINAL-REPORT.txt
 
           cat reports/FINAL-REPORT.txt
 
       # ============================================================
-      # 24. INSTALL INTO REPOSITORY
+      # INSTALL INTO REPOSITORY
       # ============================================================
 
       - name: 🚚 Install generated vendor tree
@@ -1107,16 +1281,20 @@ jobs:
             generated_vendor/ \
             vendor/xiaomi/spinel/
 
-          echo "===== REPOSITORY TREE ====="
+          echo
+          echo "=========================================="
+          echo "REPOSITORY TREE"
+          echo "=========================================="
 
-          find vendor/xiaomi/spinel \
+          find \
+            vendor/xiaomi/spinel \
             -maxdepth 2 \
             -type f \
             | sort \
             | head -300
 
       # ============================================================
-      # 25. GIT STATUS
+      # GIT STATUS
       # ============================================================
 
       - name: 📊 Git status
@@ -1124,17 +1302,22 @@ jobs:
         run: |
           set -euxo pipefail
 
-          echo "===== GIT STATUS ====="
+          echo
+          echo "=========================================="
+          echo "GIT STATUS"
+          echo "=========================================="
 
           git status --short
 
           echo
-          echo "===== VENDOR SIZE ====="
+          echo "=========================================="
+          echo "VENDOR SIZE"
+          echo "=========================================="
 
           du -sh vendor/xiaomi/spinel
 
       # ============================================================
-      # 26. COMMIT
+      # COMMIT
       # ============================================================
 
       - name: 💾 Commit vendor tree
@@ -1154,15 +1337,19 @@ jobs:
             vendor/xiaomi/spinel
 
           if git diff --cached --quiet; then
+
+            echo
             echo "No changes to commit."
+
             exit 0
+
           fi
 
           git commit \
             -m "vendor: initial proprietary tree for spinel"
 
       # ============================================================
-      # 27. PUSH
+      # PUSH
       # ============================================================
 
       - name: 🚀 Push vendor tree
@@ -1175,7 +1362,7 @@ jobs:
             HEAD:${GITHUB_REF_NAME}
 
       # ============================================================
-      # 28. UPLOAD REPORTS
+      # REPORT ARTIFACT
       # ============================================================
 
       - name: 📤 Upload reports
@@ -1188,7 +1375,7 @@ jobs:
           retention-days: 30
 
       # ============================================================
-      # 29. UPLOAD GENERATED VENDOR TREE
+      # VENDOR ARTIFACT
       # ============================================================
 
       - name: 📤 Upload generated vendor tree
