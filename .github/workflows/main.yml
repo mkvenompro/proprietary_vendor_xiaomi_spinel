@@ -33,7 +33,7 @@ jobs:
           fetch-depth: 0
 
       # ============================================================
-      # ENVIRONMENT
+      # DEPENDENCIES
       # ============================================================
 
       - name: 🧰 Install dependencies
@@ -63,11 +63,7 @@ jobs:
           echo " ENVIRONMENT"
           echo "=============================================="
 
-          echo "Python:"
           python3 --version
-
-          echo
-          echo "Git:"
           git --version
 
       # ============================================================
@@ -95,7 +91,7 @@ jobs:
           echo "Branch     : ${DUMP_BRANCH}"
 
           echo
-          echo "Dump partitions:"
+          echo "Partitions:"
 
           find stock_dump \
             -mindepth 1 \
@@ -136,7 +132,7 @@ jobs:
           git -C tools/extract-utils rev-parse HEAD
 
       # ============================================================
-      # LOAD ORIGINAL LIST
+      # ORIGINAL PROPRIETARY LIST
       # ============================================================
 
       - name: 📋 Load proprietary-files.txt
@@ -157,11 +153,6 @@ jobs:
 
           echo "Lines:"
           wc -l proprietary-files.stock.txt
-
-          echo
-          echo "First entries:"
-          sed -n '1,50p' \
-            proprietary-files.stock.txt
 
       # ============================================================
       # PARTITION ANALYSIS
@@ -185,10 +176,7 @@ jobs:
           for raw in src.read_text(errors="ignore").splitlines():
               line = raw.strip()
 
-              if not line:
-                  continue
-
-              if line.startswith("#"):
+              if not line or line.startswith("#"):
                   continue
 
               entries.append(line)
@@ -215,7 +203,7 @@ jobs:
 
           print()
           print("==============================================")
-          print(" COMPLETE PARTITION ANALYSIS")
+          print(" PARTITION ANALYSIS")
           print("==============================================")
 
           for partition, count in sorted(partitions.items()):
@@ -232,7 +220,17 @@ jobs:
           PY
 
       # ============================================================
-      # NORMALIZE PROPRIETARY LIST
+      # NORMALIZE LIST
+      #
+      # IMPORTANT:
+      #
+      # extract-utils lineage-23.2 cannot package these two
+      # vendor/odm VINTF files:
+      #
+      #   vendor/odm/etc/vintf/manifest_nonfc_dsds.xml
+      #   vendor/odm/etc/vintf/manifest_nonfc_ss.xml
+      #
+      # We keep them separately and restore them later.
       # ============================================================
 
       - name: 🧹 Normalize proprietary files
@@ -257,6 +255,12 @@ jobs:
           odm_dlkm = []
           unknown = []
           missing = []
+          manual_vintf = []
+
+          MANUAL_VINTF = {
+              "vendor/odm/etc/vintf/manifest_nonfc_dsds.xml",
+              "vendor/odm/etc/vintf/manifest_nonfc_ss.xml",
+          }
 
           def parse(line):
               marker = ""
@@ -283,13 +287,20 @@ jobs:
 
               line = raw.strip()
 
-              if not line:
-                  continue
-
-              if line.startswith("#"):
+              if not line or line.startswith("#"):
                   continue
 
               marker, value, source = parse(line)
+
+              # ----------------------------------------------------
+              # Known extract-utils incompatible VINTF files
+              # ----------------------------------------------------
+
+              if source in MANUAL_VINTF:
+
+                  manual_vintf.append(line)
+
+                  continue
 
               partition = source.split("/", 1)[0]
 
@@ -318,7 +329,7 @@ jobs:
                   continue
 
               # ----------------------------------------------------
-              # Xiaomi mi_ext
+              # mi_ext
               # ----------------------------------------------------
 
               if partition == "mi_ext":
@@ -367,13 +378,17 @@ jobs:
               unknown.append(line)
 
           # --------------------------------------------------------
-          # Write files
+          # Main extraction list
           # --------------------------------------------------------
 
           Path("proprietary-files.txt").write_text(
               "\n".join(normal) +
               ("\n" if normal else "")
           )
+
+          # --------------------------------------------------------
+          # Reports
+          # --------------------------------------------------------
 
           Path("reports/system.txt").write_text(
               "\n".join(system) +
@@ -415,6 +430,11 @@ jobs:
               ("\n" if unknown else "")
           )
 
+          Path("reports/manual-vintf.txt").write_text(
+              "\n".join(manual_vintf) +
+              ("\n" if manual_vintf else "")
+          )
+
           # --------------------------------------------------------
           # Console
           # --------------------------------------------------------
@@ -424,73 +444,34 @@ jobs:
           print(" NORMALIZATION")
           print("==============================================")
 
-          print(
-              f"Normal vendor/odm/recovery : {len(normal)}"
-          )
+          print(f"Normal vendor/odm/recovery : {len(normal)}")
+          print(f"system                    : {len(system)}")
+          print(f"system_ext                : {len(system_ext)}")
+          print(f"product                   : {len(product)}")
+          print(f"mi_ext                    : {len(mi_ext)}")
+          print(f"vendor_dlkm               : {len(vendor_dlkm)}")
+          print(f"odm_dlkm                  : {len(odm_dlkm)}")
+          print(f"Manual VINTF              : {len(manual_vintf)}")
+          print(f"Missing                   : {len(missing)}")
+          print(f"Unknown                   : {len(unknown)}")
 
-          print(
-              f"system                    : {len(system)}"
-          )
-
-          print(
-              f"system_ext                : {len(system_ext)}"
-          )
-
-          print(
-              f"product                   : {len(product)}"
-          )
-
-          print(
-              f"mi_ext                    : {len(mi_ext)}"
-          )
-
-          print(
-              f"vendor_dlkm               : {len(vendor_dlkm)}"
-          )
-
-          print(
-              f"odm_dlkm                  : {len(odm_dlkm)}"
-          )
-
-          print(
-              f"Missing                   : {len(missing)}"
-          )
-
-          print(
-              f"Unknown                   : {len(unknown)}"
-          )
-
-          if mi_ext:
+          if manual_vintf:
               print()
-              print("MI_EXT entries:")
+              print("MANUAL VINTF FILES:")
 
-              for x in mi_ext:
-                  print("  " + x)
-
-          if vendor_dlkm:
-              print()
-              print("VENDOR_DLKM entries:")
-
-              for x in vendor_dlkm:
-                  print("  " + x)
-
-          if odm_dlkm:
-              print()
-              print("ODM_DLKM entries:")
-
-              for x in odm_dlkm:
+              for x in manual_vintf:
                   print("  " + x)
 
           if missing:
               print()
-              print("MISSING NORMAL ENTRIES:")
+              print("MISSING:")
 
               for x in missing:
                   print("  " + x)
 
           if unknown:
               print()
-              print("UNKNOWN PARTITIONS:")
+              print("UNKNOWN:")
 
               for x in unknown:
                   print("  " + x)
@@ -498,7 +479,7 @@ jobs:
           PY
 
           echo
-          echo "Normalized vendor list:"
+          echo "Normalized entries:"
           wc -l proprietary-files.txt
 
       # ============================================================
@@ -545,28 +526,18 @@ jobs:
                   print(" RESOLVING iwpriv")
                   print("==============================================")
 
-                  if len(matches) == 0:
-
-                      print(
-                          "No iwpriv found in stock dump."
-                      )
-
+                  if not matches:
                       resolutions.append(
                           "bin/iwpriv -> NOT FOUND"
                       )
-
                       continue
 
                   if len(matches) > 1:
 
-                      print(
-                          "Multiple iwpriv candidates:"
-                      )
+                      print("Multiple candidates:")
 
                       for match in matches:
-                          print(
-                              "  " + match
-                          )
+                          print("  " + match)
 
                       raise SystemExit(
                           "Refusing to guess iwpriv location."
@@ -579,7 +550,6 @@ jobs:
                   )
 
                   if ":" in value:
-
                       destination = value.split(
                           ":",
                           1
@@ -590,7 +560,6 @@ jobs:
                           ":" +
                           destination
                       )
-
                   else:
                       new_value = resolved
 
@@ -619,7 +588,7 @@ jobs:
           PY
 
       # ============================================================
-      # FINAL SOURCE VALIDATION
+      # VALIDATE SOURCES
       # ============================================================
 
       - name: 🚦 Validate source files
@@ -634,17 +603,13 @@ jobs:
           prop = Path("proprietary-files.txt")
 
           missing = []
-
           entries = []
 
           for raw in prop.read_text().splitlines():
 
               line = raw.strip()
 
-              if not line:
-                  continue
-
-              if line.startswith("#"):
+              if not line or line.startswith("#"):
                   continue
 
               entries.append(line)
@@ -674,22 +639,13 @@ jobs:
           print(" FINAL SOURCE VALIDATION")
           print("==============================================")
 
-          print(
-              f"Entries : {len(entries)}"
-          )
-
-          print(
-              f"Missing : {len(missing)}"
-          )
+          print(f"Entries : {len(entries)}")
+          print(f"Missing : {len(missing)}")
 
           if missing:
 
-              print()
-
               for item in missing:
-                  print(
-                      "  " + item
-                  )
+                  print("  " + item)
 
               raise SystemExit(
                   "Missing standard source files."
@@ -727,10 +683,7 @@ jobs:
 
               line = raw.strip()
 
-              if not line:
-                  continue
-
-              if line.startswith("#"):
+              if not line or line.startswith("#"):
                   continue
 
               value = line
@@ -749,23 +702,17 @@ jobs:
               )[0]
 
               if partition not in allowed:
-
                   bad.append(
                       (n, line)
                   )
 
           if bad:
 
-              echo=""
-
-              echo
-
               print(
                   "Unsupported entries:"
               )
 
               for n, line in bad:
-
                   print(
                       f"{n}: {line}"
                   )
@@ -800,15 +747,6 @@ jobs:
 
       # ============================================================
       # GENERATE extract-files.py
-      #
-      # IMPORTANT:
-      #
-      # add_firmware_proprietary_file = FALSE
-      #
-      # This prevents extract-utils from requiring:
-      #
-      # device/xiaomi/spinel/proprietary-firmware.txt
-      #
       # ============================================================
 
       - name: 📝 Generate extract-files.py
@@ -841,11 +779,6 @@ jobs:
 
           chmod +x \
             "device/${VENDOR}/${DEVICE}/extract-files.py"
-
-          echo
-          echo "=============================================="
-          echo " GENERATED extract-files.py"
-          echo "=============================================="
 
           cat \
             "device/${VENDOR}/${DEVICE}/extract-files.py"
@@ -885,21 +818,14 @@ jobs:
           chmod +x \
             "device/${VENDOR}/${DEVICE}/setup-makefiles.py"
 
-          echo
-          echo "=============================================="
-          echo " GENERATED setup-makefiles.py"
-          echo "=============================================="
-
           cat \
             "device/${VENDOR}/${DEVICE}/setup-makefiles.py"
 
       # ============================================================
       # HARD VERIFY
-      #
-      # If TRUE appears anywhere, stop immediately.
       # ============================================================
 
-      - name: 🔐 Verify firmware extraction is disabled
+      - name: 🔐 Verify extraction configuration
         shell: bash
         run: |
           set -e
@@ -909,13 +835,11 @@ jobs:
           echo " VERIFY EXTRACT CONFIG"
           echo "=============================================="
 
-          grep \
-            -n \
+          grep -n \
             "add_firmware_proprietary_file" \
             "device/${VENDOR}/${DEVICE}/extract-files.py"
 
-          grep \
-            -n \
+          grep -n \
             "add_firmware_proprietary_file" \
             "device/${VENDOR}/${DEVICE}/setup-makefiles.py"
 
@@ -924,34 +848,20 @@ jobs:
             "add_firmware_proprietary_file=True" \
             "device/${VENDOR}/${DEVICE}"
           then
+
             echo
             echo "ERROR:"
-            echo "add_firmware_proprietary_file=True still exists."
+            echo "Firmware extraction is still enabled."
 
             exit 1
           fi
 
           echo
           echo "PASS:"
-          echo "Firmware proprietary-file parsing is disabled."
-
-          if [ -f \
-            "device/${VENDOR}/${DEVICE}/proprietary-firmware.txt"
-          ]; then
-
-            echo
-            echo "WARNING:"
-            echo "proprietary-firmware.txt already exists."
-
-          else
-
-            echo
-            echo "proprietary-firmware.txt is not required."
-
-          fi
+          echo "Firmware proprietary-file parsing disabled."
 
       # ============================================================
-      # EXTRACT VENDOR BLOBS
+      # EXTRACT
       # ============================================================
 
       - name: 🧬 Extract vendor blobs
@@ -984,6 +894,170 @@ jobs:
             extract-files.py \
             --kang \
             "${GITHUB_WORKSPACE}/stock_dump"
+
+      # ============================================================
+      # RESTORE MANUAL VINTF
+      #
+      # These files were excluded from extract-utils because
+      # lineage-23.2 does not recognize this exact package path.
+      #
+      # They are still proprietary vendor files and must remain.
+      # ============================================================
+
+      - name: 🧩 Restore ODM VINTF manifests
+        shell: bash
+        run: |
+          set -e
+
+          SRC="stock_dump/vendor/odm/etc/vintf"
+          DST="vendor/${VENDOR}/${DEVICE}/proprietary/odm/etc/vintf"
+
+          mkdir -p "$DST"
+
+          echo
+          echo "=============================================="
+          echo " RESTORING ODM VINTF"
+          echo "=============================================="
+
+          for file in \
+            manifest_nonfc_dsds.xml \
+            manifest_nonfc_ss.xml
+          do
+
+            if [ ! -f "${SRC}/${file}" ]; then
+
+              echo
+              echo "ERROR:"
+              echo "Missing stock VINTF:"
+              echo "${SRC}/${file}"
+
+              exit 1
+            fi
+
+            cp \
+              "${SRC}/${file}" \
+              "${DST}/${file}"
+
+            echo
+            echo "Restored:"
+            echo "${DST}/${file}"
+
+          done
+
+          echo
+          echo "Restored files:"
+
+          find \
+            "$DST" \
+            -type f \
+            -print \
+            | sort
+
+      # ============================================================
+      # PATCH GENERATED MAKEFILE
+      #
+      # Add the manually restored VINTF files to PRODUCT_COPY_FILES.
+      # ============================================================
+
+      - name: 🧩 Add manual VINTF to vendor makefile
+        shell: bash
+        run: |
+          set -e
+
+          VENDOR_DIR="vendor/${VENDOR}/${DEVICE}"
+
+          echo
+          echo "=============================================="
+          echo " PATCH VENDOR MAKEFILE"
+          echo "=============================================="
+
+          echo
+          echo "Vendor directory:"
+          find \
+            "$VENDOR_DIR" \
+            -maxdepth 2 \
+            -type f \
+            -name "*.mk" \
+            -print \
+            | sort
+
+          MKFILE=""
+
+          if [ -f "${VENDOR_DIR}/${DEVICE}-vendor.mk" ]; then
+            MKFILE="${VENDOR_DIR}/${DEVICE}-vendor.mk"
+          elif [ -f "${VENDOR_DIR}/spinel-vendor.mk" ]; then
+            MKFILE="${VENDOR_DIR}/spinel-vendor.mk"
+          else
+            MKFILE="$(find "$VENDOR_DIR" -maxdepth 2 -type f -name "*-vendor.mk" | head -n 1 || true)"
+          fi
+
+          if [ -z "$MKFILE" ]; then
+
+            echo
+            echo "ERROR:"
+            echo "Could not find generated vendor makefile."
+
+            find \
+              "$VENDOR_DIR" \
+              -maxdepth 3 \
+              -type f \
+              -print \
+              | sort
+
+            exit 1
+          fi
+
+          echo
+          echo "Using makefile:"
+          echo "$MKFILE"
+
+          cat >> "$MKFILE" <<'EOF'
+
+          # Manually restored ODM VINTF manifests.
+          PRODUCT_COPY_FILES += \
+              vendor/xiaomi/spinel/proprietary/odm/etc/vintf/manifest_nonfc_dsds.xml:$(TARGET_COPY_OUT_VENDOR)/odm/etc/vintf/manifest_nonfc_dsds.xml \
+              vendor/xiaomi/spinel/proprietary/odm/etc/vintf/manifest_nonfc_ss.xml:$(TARGET_COPY_OUT_VENDOR)/odm/etc/vintf/manifest_nonfc_ss.xml
+          EOF
+
+          echo
+          echo "Manual VINTF entries added."
+
+          tail -20 "$MKFILE"
+
+      # ============================================================
+      # VERIFY VINTF
+      # ============================================================
+
+      - name: 🔎 Verify restored VINTF
+        shell: bash
+        run: |
+          set -e
+
+          BASE="vendor/${VENDOR}/${DEVICE}/proprietary/odm/etc/vintf"
+
+          echo
+          echo "=============================================="
+          echo " VERIFY VINTF"
+          echo "=============================================="
+
+          test -f \
+            "${BASE}/manifest_nonfc_dsds.xml"
+
+          test -f \
+            "${BASE}/manifest_nonfc_ss.xml"
+
+          echo
+          echo "manifest_nonfc_dsds.xml:"
+          ls -lh \
+            "${BASE}/manifest_nonfc_dsds.xml"
+
+          echo
+          echo "manifest_nonfc_ss.xml:"
+          ls -lh \
+            "${BASE}/manifest_nonfc_ss.xml"
+
+          echo
+          echo "PASS"
 
       # ============================================================
       # INSPECT GENERATED TREE
@@ -1110,16 +1184,10 @@ jobs:
           echo " MI_EXT INVENTORY"
           echo "=============================================="
 
-          echo
-          echo "mi_ext proprietary entries:"
-
           cat \
             reports/mi_ext.txt \
             2>/dev/null \
             || true
-
-          echo
-          echo "Actual mi_ext files:"
 
           find \
             stock_dump/mi_ext \
@@ -1135,7 +1203,7 @@ jobs:
             || true
 
       # ============================================================
-      # GENERATED TREE CONTAMINATION CHECK
+      # CONTAMINATION CHECK
       # ============================================================
 
       - name: 🚫 Check vendor tree contamination
@@ -1156,7 +1224,8 @@ jobs:
             if [ -e "$path" ]; then
 
               echo
-              echo "ERROR: forbidden path:"
+              echo "ERROR:"
+              echo "Forbidden path:"
               echo "$path"
 
               bad=1
@@ -1171,7 +1240,7 @@ jobs:
 
           echo
           echo "PASS:"
-          echo "No system/system_ext/product/mi_ext/DLKM contamination."
+          echo "No forbidden partition contamination."
 
       # ============================================================
       # ANALYZE GENERATED TREE
@@ -1256,51 +1325,11 @@ jobs:
 
             echo
             echo "=============================================="
-            echo " MI_EXT"
-            echo "=============================================="
-
-            wc -l \
-              reports/mi_ext.txt \
-              2>/dev/null \
-              || true
-
-            echo
-            echo "=============================================="
-            echo " VENDOR_DLKM"
-            echo "=============================================="
-
-            wc -l \
-              reports/vendor_dlkm.txt \
-              2>/dev/null \
-              || true
-
-            echo
-            echo "=============================================="
-            echo " ODM_DLKM"
-            echo "=============================================="
-
-            wc -l \
-              reports/odm_dlkm.txt \
-              2>/dev/null \
-              || true
-
-            echo
-            echo "=============================================="
-            echo " MISSING"
+            echo " MANUAL VINTF"
             echo "=============================================="
 
             cat \
-              reports/final-missing-sources.txt \
-              2>/dev/null \
-              || true
-
-            echo
-            echo "=============================================="
-            echo " RESOLVED PATHS"
-            echo "=============================================="
-
-            cat \
-              reports/resolved-paths.txt \
+              reports/manual-vintf.txt \
               2>/dev/null \
               || true
 
@@ -1311,6 +1340,16 @@ jobs:
 
             wc -l \
               reports/generated-files.txt \
+              2>/dev/null \
+              || true
+
+            echo
+            echo "=============================================="
+            echo " MISSING"
+            echo "=============================================="
+
+            cat \
+              reports/final-missing-sources.txt \
               2>/dev/null \
               || true
 
@@ -1335,12 +1374,8 @@ jobs:
 
           git status --short
 
-          echo
-          echo "Tracked files:"
-          git ls-files | wc -l
-
       # ============================================================
-      # COMMIT GENERATED TREE
+      # COMMIT
       # ============================================================
 
       - name: 💾 Commit generated tree
@@ -1354,10 +1389,6 @@ jobs:
 
           git config user.email \
             "41898282+github-actions[bot]@users.noreply.github.com"
-
-          # --------------------------------------------------------
-          # Temporary files must never enter vendor repository
-          # --------------------------------------------------------
 
           rm -rf reports
 
