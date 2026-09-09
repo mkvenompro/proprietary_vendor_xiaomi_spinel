@@ -24,7 +24,7 @@ jobs:
     steps:
 
       # ============================================================
-      # 1. Checkout current vendor repository
+      # CHECKOUT
       # ============================================================
 
       - name: 📥 Checkout repository
@@ -33,11 +33,13 @@ jobs:
           fetch-depth: 0
 
       # ============================================================
-      # 2. Install dependencies
+      # ENVIRONMENT
       # ============================================================
 
       - name: 🧰 Install dependencies
         run: |
+          set -e
+
           sudo apt-get update
 
           sudo apt-get install -y \
@@ -57,6 +59,10 @@ jobs:
             jq
 
           echo
+          echo "=============================================="
+          echo " ENVIRONMENT"
+          echo "=============================================="
+
           echo "Python:"
           python3 --version
 
@@ -65,11 +71,13 @@ jobs:
           git --version
 
       # ============================================================
-      # 3. Clone stock dump
+      # STOCK DUMP
       # ============================================================
 
       - name: 📦 Clone stock dump
         run: |
+          set -e
+
           rm -rf stock_dump
 
           git clone \
@@ -97,11 +105,13 @@ jobs:
             | sort
 
       # ============================================================
-      # 4. Clone Lineage extract-utils
+      # EXTRACT UTILS
       # ============================================================
 
       - name: 🧩 Clone Lineage extract-utils
         run: |
+          set -e
+
           rm -rf tools/extract-utils
 
           git clone \
@@ -118,35 +128,50 @@ jobs:
           echo " EXTRACT-UTILS"
           echo "=============================================="
 
+          echo "Branch:"
+          git -C tools/extract-utils branch --show-current
+
+          echo
+          echo "Commit:"
           git -C tools/extract-utils rev-parse HEAD
 
       # ============================================================
-      # 5. Copy original proprietary list
+      # LOAD ORIGINAL LIST
       # ============================================================
 
       - name: 📋 Load proprietary-files.txt
         run: |
-          test -f stock_dump/proprietary-files.txt
+          set -e
+
+          test -f \
+            stock_dump/proprietary-files.txt
 
           cp \
             stock_dump/proprietary-files.txt \
             proprietary-files.stock.txt
 
           echo
-          echo "Original proprietary list:"
+          echo "=============================================="
+          echo " ORIGINAL PROPRIETARY LIST"
+          echo "=============================================="
+
+          echo "Lines:"
           wc -l proprietary-files.stock.txt
 
           echo
           echo "First entries:"
-          sed -n '1,40p' proprietary-files.stock.txt
+          sed -n '1,50p' \
+            proprietary-files.stock.txt
 
       # ============================================================
-      # 6. Analyze complete proprietary list
+      # PARTITION ANALYSIS
       # ============================================================
 
       - name: 🔬 Analyze stock proprietary list
         shell: bash
         run: |
+          set -e
+
           mkdir -p reports
 
           python3 <<'PY'
@@ -169,7 +194,7 @@ jobs:
               entries.append(line)
 
           def get_source(line):
-              value = line
+              value = line.strip()
 
               if value.startswith("-"):
                   value = value[1:].strip()
@@ -181,9 +206,10 @@ jobs:
           for line in entries:
               source = get_source(line)
 
-              # IMPORTANT:
-              # The first path component is normally the partition.
-              partition = source.split("/", 1)[0]
+              if "/" in source:
+                  partition = source.split("/", 1)[0]
+              else:
+                  partition = "(root)"
 
               partitions[partition] += 1
 
@@ -195,45 +221,25 @@ jobs:
           for partition, count in sorted(partitions.items()):
               print(f"{partition:20} {count}")
 
-          Path("reports/partition-summary.txt").write_text(
+          Path(
+              "reports/partition-summary.txt"
+          ).write_text(
               "\n".join(
                   f"{partition}: {count}"
                   for partition, count in sorted(partitions.items())
-              )
-              + "\n"
+              ) + "\n"
           )
           PY
 
       # ============================================================
-      # 7. Normalize proprietary list
-      #
-      # IMPORTANT:
-      #
-      # We intentionally preserve '-'.
-      #
-      # We also do NOT blindly delete unknown files.
-      #
-      # Classification:
-      #
-      #   vendor       -> extract-utils
-      #   odm          -> extract-utils
-      #   recovery     -> extract-utils
-      #
-      #   system       -> excluded
-      #   system_ext   -> excluded
-      #   product      -> excluded
-      #
-      #   mi_ext       -> separate report
-      #
-      #   vendor_dlkm  -> separate metadata
-      #   odm_dlkm     -> separate metadata
-      #
-      #   unknown      -> report + fail
+      # NORMALIZE PROPRIETARY LIST
       # ============================================================
 
       - name: 🧹 Normalize proprietary files
         shell: bash
         run: |
+          set -e
+
           mkdir -p reports
 
           python3 <<'PY'
@@ -243,16 +249,12 @@ jobs:
           source_list = Path("proprietary-files.stock.txt")
 
           normal = []
-
           system = []
           system_ext = []
           product = []
-
           mi_ext = []
-
           vendor_dlkm = []
           odm_dlkm = []
-
           unknown = []
           missing = []
 
@@ -265,12 +267,12 @@ jobs:
                   marker = "-"
                   value = value[1:].strip()
 
-              source, *destination = value.split(":", 1)
+              parts = value.split(":", 1)
 
-              source = source.strip()
+              source = parts[0].strip()
 
-              if destination:
-                  destination = destination[0].strip()
+              if len(parts) == 2:
+                  destination = parts[1].strip()
                   value = source + ":" + destination
               else:
                   value = source
@@ -292,16 +294,24 @@ jobs:
               partition = source.split("/", 1)[0]
 
               # ----------------------------------------------------
-              # System partitions
+              # System
               # ----------------------------------------------------
 
               if partition == "system":
                   system.append(line)
                   continue
 
+              # ----------------------------------------------------
+              # System ext
+              # ----------------------------------------------------
+
               if partition == "system_ext":
                   system_ext.append(line)
                   continue
+
+              # ----------------------------------------------------
+              # Product
+              # ----------------------------------------------------
 
               if partition == "product":
                   product.append(line)
@@ -309,9 +319,6 @@ jobs:
 
               # ----------------------------------------------------
               # Xiaomi mi_ext
-              #
-              # Do NOT force these into vendor.
-              # Keep them separately for later integration.
               # ----------------------------------------------------
 
               if partition == "mi_ext":
@@ -319,22 +326,23 @@ jobs:
                   continue
 
               # ----------------------------------------------------
-              # DLKM partitions
-              #
-              # These are handled separately from normal
-              # extract-utils package generation.
+              # Vendor DLKM
               # ----------------------------------------------------
 
               if partition == "vendor_dlkm":
                   vendor_dlkm.append(line)
                   continue
 
+              # ----------------------------------------------------
+              # ODM DLKM
+              # ----------------------------------------------------
+
               if partition == "odm_dlkm":
                   odm_dlkm.append(line)
                   continue
 
               # ----------------------------------------------------
-              # Standard partitions
+              # Standard extract-utils partitions
               # ----------------------------------------------------
 
               if partition in {
@@ -353,7 +361,7 @@ jobs:
                   continue
 
               # ----------------------------------------------------
-              # Unknown partition
+              # Unknown
               # ----------------------------------------------------
 
               unknown.append(line)
@@ -416,61 +424,92 @@ jobs:
           print(" NORMALIZATION")
           print("==============================================")
 
-          print(f"Normal vendor/odm/recovery : {len(normal)}")
-          print(f"system                    : {len(system)}")
-          print(f"system_ext                : {len(system_ext)}")
-          print(f"product                   : {len(product)}")
-          print(f"mi_ext                    : {len(mi_ext)}")
-          print(f"vendor_dlkm               : {len(vendor_dlkm)}")
-          print(f"odm_dlkm                  : {len(odm_dlkm)}")
-          print(f"Missing                   : {len(missing)}")
-          print(f"Unknown                   : {len(unknown)}")
+          print(
+              f"Normal vendor/odm/recovery : {len(normal)}"
+          )
+
+          print(
+              f"system                    : {len(system)}"
+          )
+
+          print(
+              f"system_ext                : {len(system_ext)}"
+          )
+
+          print(
+              f"product                   : {len(product)}"
+          )
+
+          print(
+              f"mi_ext                    : {len(mi_ext)}"
+          )
+
+          print(
+              f"vendor_dlkm               : {len(vendor_dlkm)}"
+          )
+
+          print(
+              f"odm_dlkm                  : {len(odm_dlkm)}"
+          )
+
+          print(
+              f"Missing                   : {len(missing)}"
+          )
+
+          print(
+              f"Unknown                   : {len(unknown)}"
+          )
 
           if mi_ext:
               print()
-              print("mi_ext entries:")
+              print("MI_EXT entries:")
+
               for x in mi_ext:
+                  print("  " + x)
+
+          if vendor_dlkm:
+              print()
+              print("VENDOR_DLKM entries:")
+
+              for x in vendor_dlkm:
+                  print("  " + x)
+
+          if odm_dlkm:
+              print()
+              print("ODM_DLKM entries:")
+
+              for x in odm_dlkm:
                   print("  " + x)
 
           if missing:
               print()
-              print("Missing normal entries:")
+              print("MISSING NORMAL ENTRIES:")
+
               for x in missing:
                   print("  " + x)
 
           if unknown:
               print()
               print("UNKNOWN PARTITIONS:")
+
               for x in unknown:
                   print("  " + x)
+
           PY
 
           echo
-          echo "Normalized list:"
+          echo "Normalized vendor list:"
           wc -l proprietary-files.txt
 
       # ============================================================
-      # 8. Resolve known malformed root-level entries
-      #
-      # Current dump has:
-      #
-      #   bin/iwpriv
-      #
-      # which is not a partition-qualified Lineage path.
-      #
-      # Search the actual dump.
-      #
-      # If exactly one iwpriv exists, automatically replace the
-      # malformed entry with its real path.
-      #
-      # If none exists, record it as missing.
-      #
-      # If multiple exist, fail rather than guessing.
+      # RESOLVE iwpriv
       # ============================================================
 
       - name: 🔧 Resolve malformed root-level blobs
         shell: bash
         run: |
+          set -e
+
           python3 <<'PY'
           from pathlib import Path
 
@@ -485,7 +524,6 @@ jobs:
           for line in lines:
 
               value = line
-
               marker = ""
 
               if value.startswith("-"):
@@ -503,51 +541,68 @@ jobs:
                   )
 
                   print()
-                  print("Resolving bin/iwpriv")
-
-                  if len(matches) == 1:
-
-                      resolved = matches[0]
-
-                      print(
-                          f"Resolved: {source} -> {resolved}"
-                      )
-
-                      if ":" in value:
-                          destination = value.split(":", 1)[1]
-                          new_value = resolved + ":" + destination
-                      else:
-                          new_value = resolved
-
-                      output.append(
-                          marker + new_value
-                      )
-
-                      resolutions.append(
-                          f"{source} -> {resolved}"
-                      )
-
-                      continue
+                  print("==============================================")
+                  print(" RESOLVING iwpriv")
+                  print("==============================================")
 
                   if len(matches) == 0:
 
-                      print("No iwpriv found in stock dump.")
-
-                      resolutions.append(
-                          f"{source} -> NOT FOUND"
+                      print(
+                          "No iwpriv found in stock dump."
                       )
 
-                      # Keep it out of extraction.
+                      resolutions.append(
+                          "bin/iwpriv -> NOT FOUND"
+                      )
+
                       continue
 
-                  print("Multiple iwpriv candidates found:")
+                  if len(matches) > 1:
 
-                  for match in matches:
-                      print("  " + match)
+                      print(
+                          "Multiple iwpriv candidates:"
+                      )
 
-                  raise SystemExit(
-                      "Refusing to guess iwpriv location."
+                      for match in matches:
+                          print(
+                              "  " + match
+                          )
+
+                      raise SystemExit(
+                          "Refusing to guess iwpriv location."
+                      )
+
+                  resolved = matches[0]
+
+                  print(
+                      f"Resolved: {source} -> {resolved}"
                   )
+
+                  if ":" in value:
+
+                      destination = value.split(
+                          ":",
+                          1
+                      )[1]
+
+                      new_value = (
+                          resolved +
+                          ":" +
+                          destination
+                      )
+
+                  else:
+                      new_value = resolved
+
+                  output.append(
+                      marker + new_value
+                  )
+
+                  resolutions.append(
+                      f"{source} -> {resolved}"
+                  )
+
+                  continue
 
               output.append(line)
 
@@ -560,23 +615,18 @@ jobs:
               "\n".join(resolutions) +
               ("\n" if resolutions else "")
           )
+
           PY
 
       # ============================================================
-      # 9. Remove only confirmed missing entries
-      #
-      # Current known missing:
-      #
-      #   system_ext/priv-app/Settings/Settings.apk
-      #
-      # It was already excluded by partition classification.
-      #
-      # This step catches any missing vendor/odm/recovery entry.
+      # FINAL SOURCE VALIDATION
       # ============================================================
 
       - name: 🚦 Validate source files
         shell: bash
         run: |
+          set -e
+
           python3 <<'PY'
           from pathlib import Path
 
@@ -585,19 +635,29 @@ jobs:
 
           missing = []
 
+          entries = []
+
           for raw in prop.read_text().splitlines():
 
               line = raw.strip()
 
-              if not line or line.startswith("#"):
+              if not line:
                   continue
+
+              if line.startswith("#"):
+                  continue
+
+              entries.append(line)
 
               value = line
 
               if value.startswith("-"):
                   value = value[1:].strip()
 
-              source = value.split(":", 1)[0].strip()
+              source = value.split(
+                  ":",
+                  1
+              )[0].strip()
 
               if not (dump / source).exists():
                   missing.append(line)
@@ -614,28 +674,41 @@ jobs:
           print(" FINAL SOURCE VALIDATION")
           print("==============================================")
 
-          print(f"Entries : {sum(1 for x in prop.read_text().splitlines() if x.strip())}")
-          print(f"Missing : {len(missing)}")
+          print(
+              f"Entries : {len(entries)}"
+          )
+
+          print(
+              f"Missing : {len(missing)}"
+          )
 
           if missing:
+
               print()
+
               for item in missing:
-                  print("  " + item)
+                  print(
+                      "  " + item
+                  )
 
               raise SystemExit(
                   "Missing standard source files."
               )
 
+          print()
           print("PASS")
+
           PY
 
       # ============================================================
-      # 10. Validate that only supported partitions remain
+      # PARTITION VALIDATION
       # ============================================================
 
       - name: 🛡️ Validate extraction partitions
         shell: bash
         run: |
+          set -e
+
           python3 <<'PY'
           from pathlib import Path
 
@@ -654,7 +727,10 @@ jobs:
 
               line = raw.strip()
 
-              if not line or line.startswith("#"):
+              if not line:
+                  continue
+
+              if line.startswith("#"):
                   continue
 
               value = line
@@ -662,50 +738,86 @@ jobs:
               if value.startswith("-"):
                   value = value[1:].strip()
 
-              source = value.split(":", 1)[0].strip()
+              source = value.split(
+                  ":",
+                  1
+              )[0].strip()
 
-              partition = source.split("/", 1)[0]
+              partition = source.split(
+                  "/",
+                  1
+              )[0]
 
               if partition not in allowed:
-                  bad.append((n, line))
+
+                  bad.append(
+                      (n, line)
+                  )
 
           if bad:
 
-              print("Unsupported entries:")
+              echo=""
+
+              echo
+
+              print(
+                  "Unsupported entries:"
+              )
 
               for n, line in bad:
-                  print(f"{n}: {line}")
+
+                  print(
+                      f"{n}: {line}"
+                  )
 
               raise SystemExit(1)
 
+          print()
           print(
               "PASS: proprietary-files.txt contains only "
               "vendor/odm/recovery entries."
           )
+
           PY
 
       # ============================================================
-      # 11. Prepare device tree
+      # PREPARE DEVICE TREE
       # ============================================================
 
       - name: 📂 Prepare device tree
         run: |
+          set -e
+
           mkdir -p \
-            device/xiaomi/${DEVICE} \
-            vendor/${VENDOR}/${DEVICE}
+            "device/${VENDOR}/${DEVICE}"
+
+          mkdir -p \
+            "vendor/${VENDOR}/${DEVICE}"
 
           cp \
             proprietary-files.txt \
-            device/xiaomi/${DEVICE}/proprietary-files.txt
+            "device/${VENDOR}/${DEVICE}/proprietary-files.txt"
 
       # ============================================================
-      # 12. Generate extract-files.py
+      # GENERATE extract-files.py
+      #
+      # IMPORTANT:
+      #
+      # add_firmware_proprietary_file = FALSE
+      #
+      # This prevents extract-utils from requiring:
+      #
+      # device/xiaomi/spinel/proprietary-firmware.txt
+      #
       # ============================================================
 
       - name: 📝 Generate extract-files.py
         shell: bash
         run: |
-          cat > device/xiaomi/${DEVICE}/extract-files.py <<'PY'
+          set -e
+
+          cat > \
+            "device/${VENDOR}/${DEVICE}/extract-files.py" <<'PY'
           #!/usr/bin/env -S PYTHONPATH=../../../tools/extract-utils python3
 
           from extract_utils.main import (
@@ -718,7 +830,7 @@ jobs:
               "spinel",
               "xiaomi",
               check_elf=True,
-              add_firmware_proprietary_file=True,
+              add_firmware_proprietary_file=False,
           )
 
 
@@ -728,19 +840,27 @@ jobs:
           PY
 
           chmod +x \
-            device/xiaomi/${DEVICE}/extract-files.py
+            "device/${VENDOR}/${DEVICE}/extract-files.py"
 
           echo
-          cat device/xiaomi/${DEVICE}/extract-files.py
+          echo "=============================================="
+          echo " GENERATED extract-files.py"
+          echo "=============================================="
+
+          cat \
+            "device/${VENDOR}/${DEVICE}/extract-files.py"
 
       # ============================================================
-      # 13. Generate setup-makefiles.py
+      # GENERATE setup-makefiles.py
       # ============================================================
 
       - name: 📝 Generate setup-makefiles.py
         shell: bash
         run: |
-          cat > device/xiaomi/${DEVICE}/setup-makefiles.py <<'PY'
+          set -e
+
+          cat > \
+            "device/${VENDOR}/${DEVICE}/setup-makefiles.py" <<'PY'
           #!/usr/bin/env -S PYTHONPATH=../../../tools/extract-utils python3
 
           from extract_utils.main import (
@@ -753,7 +873,7 @@ jobs:
               "spinel",
               "xiaomi",
               check_elf=True,
-              add_firmware_proprietary_file=True,
+              add_firmware_proprietary_file=False,
           )
 
 
@@ -763,10 +883,75 @@ jobs:
           PY
 
           chmod +x \
-            device/xiaomi/${DEVICE}/setup-makefiles.py
+            "device/${VENDOR}/${DEVICE}/setup-makefiles.py"
+
+          echo
+          echo "=============================================="
+          echo " GENERATED setup-makefiles.py"
+          echo "=============================================="
+
+          cat \
+            "device/${VENDOR}/${DEVICE}/setup-makefiles.py"
 
       # ============================================================
-      # 14. Run extract-utils
+      # HARD VERIFY
+      #
+      # If TRUE appears anywhere, stop immediately.
+      # ============================================================
+
+      - name: 🔐 Verify firmware extraction is disabled
+        shell: bash
+        run: |
+          set -e
+
+          echo
+          echo "=============================================="
+          echo " VERIFY EXTRACT CONFIG"
+          echo "=============================================="
+
+          grep \
+            -n \
+            "add_firmware_proprietary_file" \
+            "device/${VENDOR}/${DEVICE}/extract-files.py"
+
+          grep \
+            -n \
+            "add_firmware_proprietary_file" \
+            "device/${VENDOR}/${DEVICE}/setup-makefiles.py"
+
+          if grep -R \
+            -n \
+            "add_firmware_proprietary_file=True" \
+            "device/${VENDOR}/${DEVICE}"
+          then
+            echo
+            echo "ERROR:"
+            echo "add_firmware_proprietary_file=True still exists."
+
+            exit 1
+          fi
+
+          echo
+          echo "PASS:"
+          echo "Firmware proprietary-file parsing is disabled."
+
+          if [ -f \
+            "device/${VENDOR}/${DEVICE}/proprietary-firmware.txt"
+          ]; then
+
+            echo
+            echo "WARNING:"
+            echo "proprietary-firmware.txt already exists."
+
+          else
+
+            echo
+            echo "proprietary-firmware.txt is not required."
+
+          fi
+
+      # ============================================================
+      # EXTRACT VENDOR BLOBS
       # ============================================================
 
       - name: 🧬 Extract vendor blobs
@@ -774,19 +959,34 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/tools/extract-utils
         shell: bash
         run: |
-          cd device/xiaomi/${DEVICE}
+          set -e
+
+          cd \
+            "device/${VENDOR}/${DEVICE}"
 
           echo
           echo "=============================================="
           echo " LINEAGE EXTRACT-UTILS"
           echo "=============================================="
 
-          python3 extract-files.py \
+          echo
+          echo "Working directory:"
+          pwd
+
+          echo
+          echo "Proprietary list:"
+          wc -l proprietary-files.txt
+
+          echo
+          echo "Running extraction..."
+
+          python3 \
+            extract-files.py \
             --kang \
             "${GITHUB_WORKSPACE}/stock_dump"
 
       # ============================================================
-      # 15. Inspect generated tree
+      # INSPECT GENERATED TREE
       # ============================================================
 
       - name: 🔍 Inspect generated vendor tree
@@ -800,21 +1000,25 @@ jobs:
           echo " GENERATED VENDOR TREE"
           echo "=============================================="
 
-          if [ -d "vendor/${VENDOR}/${DEVICE}" ]; then
+          if [ -d \
+            "vendor/${VENDOR}/${DEVICE}"
+          ]; then
 
             find \
               "vendor/${VENDOR}/${DEVICE}" \
-              -type f \
-              -o -type l \
+              \( -type f -o -type l \) \
               | sort \
               > reports/generated-files.txt
 
             echo
             echo "Generated file count:"
-            wc -l reports/generated-files.txt
+
+            wc -l \
+              reports/generated-files.txt
 
             echo
             echo "Top-level tree:"
+
             find \
               "vendor/${VENDOR}/${DEVICE}" \
               -maxdepth 3 \
@@ -824,106 +1028,114 @@ jobs:
 
           else
 
-            echo "Vendor tree was not generated."
+            echo \
+              "Vendor tree was not generated."
+
+            : > \
+              reports/generated-files.txt
 
           fi
 
       # ============================================================
-      # 16. Create DLKM metadata
-      #
-      # Do NOT copy the whole vendor_dlkm partition blindly into
-      # vendor/xiaomi/spinel/proprietary.
-      #
-      # Keep the exact original entries for later BoardConfig/
-      # kernel-module integration.
+      # DLKM INVENTORY
       # ============================================================
 
-      - name: 🧩 Prepare DLKM metadata
+      - name: 🧩 Inventory DLKM
         if: always()
         shell: bash
         run: |
-          mkdir -p \
-            vendor/${VENDOR}/${DEVICE}/dlkm/vendor_dlkm \
-            vendor/${VENDOR}/${DEVICE}/dlkm/odm_dlkm
-
-          cp \
-            reports/vendor_dlkm.txt \
-            vendor/${VENDOR}/${DEVICE}/dlkm/vendor_dlkm/proprietary-files.txt
-
-          cp \
-            reports/odm_dlkm.txt \
-            vendor/${VENDOR}/${DEVICE}/dlkm/odm_dlkm/proprietary-files.txt
-
           echo
           echo "=============================================="
           echo " DLKM INVENTORY"
           echo "=============================================="
 
           echo
-          echo "vendor_dlkm:"
-          cat reports/vendor_dlkm.txt || true
+          echo "vendor_dlkm proprietary entries:"
+
+          cat \
+            reports/vendor_dlkm.txt \
+            2>/dev/null \
+            || true
 
           echo
-          echo "odm_dlkm:"
-          cat reports/odm_dlkm.txt || true
+          echo "vendor_dlkm actual files:"
 
-          echo
-          echo "Actual vendor_dlkm files:"
-          find stock_dump/vendor_dlkm \
-            -type f \
-            -o -type l \
+          find \
+            stock_dump/vendor_dlkm \
+            \( -type f -o -type l \) \
             2>/dev/null \
             | sort \
-            > reports/vendor_dlkm-files.txt || true
+            > reports/vendor_dlkm-files.txt \
+            || true
 
-          wc -l reports/vendor_dlkm-files.txt || true
+          wc -l \
+            reports/vendor_dlkm-files.txt \
+            2>/dev/null \
+            || true
 
           echo
-          echo "Actual odm_dlkm files:"
-          find stock_dump/odm_dlkm \
-            -type f \
-            -o -type l \
+          echo "odm_dlkm proprietary entries:"
+
+          cat \
+            reports/odm_dlkm.txt \
+            2>/dev/null \
+            || true
+
+          echo
+          echo "odm_dlkm actual files:"
+
+          find \
+            stock_dump/odm_dlkm \
+            \( -type f -o -type l \) \
             2>/dev/null \
             | sort \
-            > reports/odm_dlkm-files.txt || true
+            > reports/odm_dlkm-files.txt \
+            || true
 
-          wc -l reports/odm_dlkm-files.txt || true
+          wc -l \
+            reports/odm_dlkm-files.txt \
+            2>/dev/null \
+            || true
 
       # ============================================================
-      # 17. Create mi_ext metadata
+      # MI_EXT INVENTORY
       # ============================================================
 
-      - name: 🧩 Prepare mi_ext metadata
+      - name: 🧩 Inventory mi_ext
         if: always()
+        shell: bash
         run: |
-          mkdir -p \
-            vendor/${VENDOR}/${DEVICE}/mi_ext
-
-          cp \
-            reports/mi_ext.txt \
-            vendor/${VENDOR}/${DEVICE}/mi_ext/proprietary-files.txt
-
           echo
           echo "=============================================="
-          echo " MI_EXT"
+          echo " MI_EXT INVENTORY"
           echo "=============================================="
 
-          cat reports/mi_ext.txt || true
+          echo
+          echo "mi_ext proprietary entries:"
+
+          cat \
+            reports/mi_ext.txt \
+            2>/dev/null \
+            || true
 
           echo
           echo "Actual mi_ext files:"
 
-          find stock_dump/mi_ext \
-            -type f \
-            -o -type l \
+          find \
+            stock_dump/mi_ext \
+            \( -type f -o -type l \) \
             2>/dev/null \
             | sort \
-            > reports/mi_ext-files.txt || true
+            > reports/mi_ext-files.txt \
+            || true
 
-          wc -l reports/mi_ext-files.txt || true
+          wc -l \
+            reports/mi_ext-files.txt \
+            2>/dev/null \
+            || true
 
       # ============================================================
-      # 18. Verify generated tree has no system/product blobs
+      # GENERATED TREE CONTAMINATION CHECK
       # ============================================================
 
       - name: 🚫 Check vendor tree contamination
@@ -935,13 +1147,20 @@ jobs:
           for path in \
             "vendor/${VENDOR}/${DEVICE}/proprietary/system" \
             "vendor/${VENDOR}/${DEVICE}/proprietary/system_ext" \
-            "vendor/${VENDOR}/${DEVICE}/proprietary/product"
+            "vendor/${VENDOR}/${DEVICE}/proprietary/product" \
+            "vendor/${VENDOR}/${DEVICE}/proprietary/mi_ext" \
+            "vendor/${VENDOR}/${DEVICE}/proprietary/vendor_dlkm" \
+            "vendor/${VENDOR}/${DEVICE}/proprietary/odm_dlkm"
           do
 
             if [ -e "$path" ]; then
+
+              echo
               echo "ERROR: forbidden path:"
               echo "$path"
+
               bad=1
+
             fi
 
           done
@@ -950,10 +1169,52 @@ jobs:
             exit 1
           fi
 
-          echo "PASS: no system/system_ext/product contamination."
+          echo
+          echo "PASS:"
+          echo "No system/system_ext/product/mi_ext/DLKM contamination."
 
       # ============================================================
-      # 19. Generate final report
+      # ANALYZE GENERATED TREE
+      # ============================================================
+
+      - name: 📊 Analyze generated vendor tree
+        if: always()
+        shell: bash
+        run: |
+          echo
+          echo "=============================================="
+          echo " GENERATED TREE ANALYSIS"
+          echo "=============================================="
+
+          if [ -f \
+            reports/generated-files.txt
+          ]; then
+
+            echo
+            echo "Total generated files:"
+
+            wc -l \
+              reports/generated-files.txt
+
+            echo
+            echo "By top-level directory:"
+
+            awk -F/ '
+              NF >= 1 {
+                count[$1]++
+              }
+              END {
+                for (x in count)
+                  print count[x], x
+              }
+            ' \
+              reports/generated-files.txt \
+              | sort -nr
+
+          fi
+
+      # ============================================================
+      # FINAL REPORT
       # ============================================================
 
       - name: 📊 Generate final report
@@ -966,58 +1227,102 @@ jobs:
             echo "=============================================="
             echo " SPINEL LINEAGE VENDOR TREE REPORT"
             echo "=============================================="
+
             echo
             echo "Device       : ${DEVICE}"
             echo "Vendor       : ${VENDOR}"
             echo "Dump branch  : ${DUMP_BRANCH}"
             echo "Extract utils: ${EXTRACT_UTILS_BRANCH}"
+
             echo
             echo "=============================================="
             echo " PARTITIONS"
             echo "=============================================="
-            cat reports/partition-summary.txt || true
+
+            cat \
+              reports/partition-summary.txt \
+              2>/dev/null \
+              || true
+
             echo
             echo "=============================================="
-            echo " NORMALIZED ENTRIES"
+            echo " NORMALIZED"
             echo "=============================================="
-            wc -l proprietary-files.txt || true
+
+            wc -l \
+              proprietary-files.txt \
+              2>/dev/null \
+              || true
+
             echo
             echo "=============================================="
             echo " MI_EXT"
             echo "=============================================="
-            wc -l reports/mi_ext.txt || true
+
+            wc -l \
+              reports/mi_ext.txt \
+              2>/dev/null \
+              || true
+
             echo
             echo "=============================================="
             echo " VENDOR_DLKM"
             echo "=============================================="
-            wc -l reports/vendor_dlkm.txt || true
+
+            wc -l \
+              reports/vendor_dlkm.txt \
+              2>/dev/null \
+              || true
+
             echo
             echo "=============================================="
             echo " ODM_DLKM"
             echo "=============================================="
-            wc -l reports/odm_dlkm.txt || true
+
+            wc -l \
+              reports/odm_dlkm.txt \
+              2>/dev/null \
+              || true
+
             echo
             echo "=============================================="
             echo " MISSING"
             echo "=============================================="
-            cat reports/final-missing-sources.txt || true
+
+            cat \
+              reports/final-missing-sources.txt \
+              2>/dev/null \
+              || true
+
             echo
             echo "=============================================="
             echo " RESOLVED PATHS"
             echo "=============================================="
-            cat reports/resolved-paths.txt || true
+
+            cat \
+              reports/resolved-paths.txt \
+              2>/dev/null \
+              || true
+
             echo
             echo "=============================================="
             echo " GENERATED FILES"
             echo "=============================================="
-            wc -l reports/generated-files.txt 2>/dev/null || true
 
-          } > reports/vendor-tree-report.txt
+            wc -l \
+              reports/generated-files.txt \
+              2>/dev/null \
+              || true
 
-          cat reports/vendor-tree-report.txt
+          } > \
+            reports/vendor-tree-report.txt
+
+          echo
+          cat \
+            reports/vendor-tree-report.txt
 
       # ============================================================
-      # 20. Git status
+      # GIT STATUS
       # ============================================================
 
       - name: 📊 Git status
@@ -1035,20 +1340,33 @@ jobs:
           git ls-files | wc -l
 
       # ============================================================
-      # 21. Commit generated vendor tree
+      # COMMIT GENERATED TREE
       # ============================================================
 
       - name: 💾 Commit generated tree
         if: success()
         shell: bash
         run: |
+          set -e
+
           git config user.name \
             "github-actions[bot]"
 
           git config user.email \
             "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add .
+          # --------------------------------------------------------
+          # Temporary files must never enter vendor repository
+          # --------------------------------------------------------
+
+          rm -rf reports
+
+          rm -f \
+            proprietary-files.stock.txt
+
+          git add \
+            "device/${VENDOR}/${DEVICE}" \
+            "vendor/${VENDOR}/${DEVICE}"
 
           if git diff --cached --quiet; then
 
@@ -1064,7 +1382,7 @@ jobs:
           fi
 
       # ============================================================
-      # 22. Upload diagnostics
+      # REPORT ARTIFACT
       # ============================================================
 
       - name: 📦 Upload reports
@@ -1082,7 +1400,7 @@ jobs:
           if-no-files-found: warn
 
       # ============================================================
-      # 23. Upload generated vendor repository
+      # VENDOR TREE ARTIFACT
       # ============================================================
 
       - name: 📦 Upload generated vendor tree
