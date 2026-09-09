@@ -3,7 +3,6 @@ name: 🧬 Build LineageOS Vendor Tree • spinel
 on:
   workflow_dispatch:
     inputs:
-
       stock_rom_url:
         description: "Official Xiaomi Fastboot ROM URL - RADIO ONLY"
         required: false
@@ -52,52 +51,39 @@ on:
         default: true
         type: boolean
 
-
 env:
-
   DEVICE: spinel
   VENDOR: xiaomi
 
   # ============================================================
   # STOCK DUMP
   #
-  # proprietary-files.txt + proprietary blobs come ONLY from
-  # the GitLab stock dump.
+  # Proprietary blobs come ONLY from the GitLab stock dump.
   # ============================================================
-
   STOCK_DUMP_REPO: "https://gitlab.com/mkpromvp/dumber-2-mk.git"
   STOCK_DUMP_DIR: "stock_dump"
 
   # ============================================================
   # EXTRACT UTILS
   # ============================================================
-
   EXTRACT_UTILS_REPO: "https://github.com/LineageOS/android_tools_extract-utils.git"
   EXTRACT_UTILS_DIR: "extract-utils"
 
   # ============================================================
   # STAGING ANDROID ROOT
   # ============================================================
-
   STAGING_ROOT: "staging_android_root"
 
   # ============================================================
-  # OPTIONAL ENV URL
+  # OPTIONAL RADIO URL
   #
-  # workflow_dispatch input takes priority.
-  #
-  # This URL is ONLY used for radio firmware.
+  # Used ONLY when the workflow input is empty.
   # ============================================================
-
   STOCK_ROM_URL: ""
 
-
 jobs:
-
   build-vendor:
-
     name: 🧬 Generate Vendor Tree
-
     runs-on: ubuntu-24.04
 
     permissions:
@@ -199,17 +185,12 @@ jobs:
 
           git config --global user.name "MKVenomPro CI"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           git config --global http.version HTTP/1.1
           git config --global http.postBuffer 524288000
           git config --global core.compression 0
 
       # ==========================================================
       # 5. CLONE STOCK DUMP
-      #
-      # THIS IS THE SOURCE FOR PROPRIETARY BLOBS.
-      #
-      # The Fastboot ROM is NOT used here.
       # ==========================================================
 
       - name: 📥 Clone stock dump
@@ -225,7 +206,6 @@ jobs:
           success=0
 
           for attempt in $(seq 1 "$RETRIES"); do
-
             echo
             echo "============================================================"
             echo "📥 Stock dump clone attempt $attempt/$RETRIES"
@@ -241,12 +221,10 @@ jobs:
 
               success=1
               break
-
             fi
 
             echo "⚠️ Clone failed"
             sleep 10
-
           done
 
           if [[ "$success" != "1" ]]; then
@@ -259,22 +237,18 @@ jobs:
           lfs_success=0
 
           for attempt in $(seq 1 "$RETRIES"); do
-
             echo
             echo "============================================================"
             echo "📦 Git LFS attempt $attempt/$RETRIES"
             echo "============================================================"
 
             if git lfs fetch --all && git lfs checkout; then
-
               lfs_success=1
               break
-
             fi
 
             echo "⚠️ Git LFS failed"
             sleep 10
-
           done
 
           if [[ "$lfs_success" != "1" ]]; then
@@ -310,7 +284,6 @@ jobs:
 
           echo
           echo "Found proprietary-files.txt files:"
-
           printf '%s\n' "${LISTS[@]}"
 
           SOURCE_LIST="${LISTS[0]}"
@@ -327,6 +300,23 @@ jobs:
 
       # ==========================================================
       # 7. NORMALIZE PROPRIETARY LIST
+      #
+      # IMPORTANT:
+      #
+      # The stock dump already contains:
+      #
+      #   bin/iwpriv
+      #   vendor/bin/iwpriv
+      #
+      # extract-utils sees both as the same destination after
+      # normalization.
+      #
+      # Therefore:
+      #
+      #   bin/iwpriv       -> DROP
+      #   vendor/bin/iwpriv -> KEEP
+      #
+      # DO NOT convert bin/iwpriv into vendor/bin/iwpriv.
       # ==========================================================
 
       - name: 🧹 Normalize proprietary-files.txt
@@ -340,23 +330,23 @@ jobs:
           {
             line=$0
 
-            # Preserve comments
+            # Preserve comments.
             if (line ~ /^[[:space:]]*#/) {
               print line
               next
             }
 
-            # Remove leading "-"
+            # Remove leading "-".
             sub(/^[[:space:]]*-/, "", line)
 
-            # Remove leading whitespace
+            # Remove leading whitespace.
             sub(/^[[:space:]]+/, "", line)
 
-            # Skip empty lines
+            # Skip empty lines.
             if (line == "")
               next
 
-            # Unsupported Android partitions
+            # Unsupported Android partitions.
             if (line ~ /^system\//)
               next
 
@@ -375,18 +365,18 @@ jobs:
             if (line ~ /^mi_ext\//)
               next
 
-            # extract-utils unsupported VINTF files
+            # extract-utils unsupported VINTF files.
             if (line == "vendor/odm/etc/vintf/manifest_nonfc_dsds.xml")
               next
 
             if (line == "vendor/odm/etc/vintf/manifest_nonfc_ss.xml")
               next
 
-            # Fix iwpriv
-            if (line == "bin/iwpriv") {
-              print "vendor/bin/iwpriv"
+            # IMPORTANT:
+            # vendor/bin/iwpriv already exists in the source list.
+            # Drop the duplicate legacy path.
+            if (line == "bin/iwpriv")
               next
-            }
 
             print line
           }
@@ -399,7 +389,9 @@ jobs:
 
           echo
           echo "Entries:"
-          grep -vE '^[[:space:]]*(#|$)' proprietary-files.txt | wc -l
+          grep -vE '^[[:space:]]*(#|$)' \
+            proprietary-files.txt \
+            | wc -l
 
           echo
           echo "Checking unsupported partitions..."
@@ -410,10 +402,32 @@ jobs:
 
             echo "❌ Unsupported entries remain"
             exit 1
-
           fi
 
           echo "✅ Partition filtering passed"
+
+          echo
+          echo "Checking iwpriv..."
+
+          if grep -n '^bin/iwpriv' proprietary-files.txt; then
+            echo "❌ bin/iwpriv must not exist"
+            exit 1
+          fi
+
+          IWPRIV_COUNT="$(
+            grep -c '^vendor/bin/iwpriv$' \
+              proprietary-files.txt \
+              || true
+          )"
+
+          echo "vendor/bin/iwpriv count = $IWPRIV_COUNT"
+
+          if [[ "$IWPRIV_COUNT" -ne 1 ]]; then
+            echo "❌ Expected exactly one vendor/bin/iwpriv"
+            exit 1
+          fi
+
+          echo "✅ iwpriv normalization passed"
 
       # ==========================================================
       # 8. VALIDATE SOURCE FILES
@@ -447,7 +461,6 @@ jobs:
 
               echo "❌ MISSING: $src"
               missing=$((missing + 1))
-
             fi
 
           done < proprietary-files.txt
@@ -492,8 +505,6 @@ jobs:
 
       # ==========================================================
       # 10. VERIFY EXTRACT UTILS
-      #
-      # NO PYTHONPATH IS EXPORTED TO GITHUB_ENV.
       # ==========================================================
 
       - name: 🧪 Verify extract-utils
@@ -537,7 +548,7 @@ jobs:
           echo "$WORK_PARENT"
 
       # ==========================================================
-      # 12. COPY DEVICE TREE
+      # 12. PREPARE SPINEL EXTRACTION TREE
       # ==========================================================
 
       - name: 📱 Prepare spinel extraction tree
@@ -603,9 +614,8 @@ jobs:
           echo "============================================================"
 
           echo
-          echo "Extract-utils path:"
-          realpath \
-            "$WORK_PARENT/tools/extract-utils"
+          echo "Extract-utils:"
+          realpath "$WORK_PARENT/tools/extract-utils"
 
           echo
           echo "tools.py:"
@@ -613,12 +623,7 @@ jobs:
             "$WORK_PARENT/tools/extract-utils/extract_utils/tools.py"
 
       # ==========================================================
-      # 14. VERIFY STAGING ANDROID ROOT
-      #
-      # IMPORTANT:
-      # We explicitly import the extract-utils FROM STAGING.
-      #
-      # We DO NOT use the workspace extract-utils here.
+      # 14. VERIFY STAGING ROOT
       # ==========================================================
 
       - name: 🧪 Verify staging extract-utils root
@@ -628,8 +633,6 @@ jobs:
 
           cd "$WORK_PARENT"
 
-          # IMPORTANT:
-          # Only staging extract-utils is allowed here.
           export PYTHONPATH="$WORK_PARENT/tools/extract-utils"
 
           python3 - <<'PY'
@@ -651,8 +654,6 @@ jobs:
           print("CALCULATED_ANDROID_ROOT:")
           print(actual)
 
-          print()
-
           if actual != expected:
               raise SystemExit(
                   "❌ Android root mismatch\n"
@@ -660,18 +661,12 @@ jobs:
                   f"Actual:   {actual}"
               )
 
+          print()
           print("✅ Staging Android root is correct")
           PY
 
       # ==========================================================
-      # 15. RUN EXTRACTION
-      #
-      # THIS IS THE IMPORTANT FIX.
-      #
-      # PYTHONPATH = STAGING extract-utils.
-      #
-      # NOT:
-      # $GITHUB_WORKSPACE/extract-utils
+      # 15. EXTRACTION
       # ==========================================================
 
       - name: 🧬 Extract proprietary blobs
@@ -727,6 +722,31 @@ jobs:
             "$WORK_PARENT/device/xiaomi/spinel/proprietary-files.txt"
 
           echo "✅ proprietary-files.txt exists"
+
+          echo
+          echo "Final iwpriv check before extraction:"
+
+          IWPRIV_COUNT="$(
+            grep -c '^vendor/bin/iwpriv$' \
+              "$WORK_PARENT/device/xiaomi/spinel/proprietary-files.txt" \
+              || true
+          )"
+
+          echo "vendor/bin/iwpriv count = $IWPRIV_COUNT"
+
+          if grep -n '^bin/iwpriv' \
+            "$WORK_PARENT/device/xiaomi/spinel/proprietary-files.txt"; then
+
+            echo "❌ bin/iwpriv still exists"
+            exit 1
+          fi
+
+          if [[ "$IWPRIV_COUNT" -ne 1 ]]; then
+            echo "❌ Invalid vendor/bin/iwpriv count"
+            exit 1
+          fi
+
+          echo "✅ iwpriv list is clean"
 
           echo
           echo "Starting extractor..."
@@ -797,53 +817,42 @@ jobs:
           while IFS= read -r file; do
 
             case "$(basename "$file")" in
-
               manifest_nonfc_dsds.xml)
                 dsds="$file"
                 ;;
-
               manifest_nonfc_ss.xml)
                 ss="$file"
                 ;;
-
             esac
 
           done < <(
             find "$STOCK_DUMP_DIR" \
               -type f \
-              \( \
+              \
                 -name "manifest_nonfc_dsds.xml" \
                 -o \
                 -name "manifest_nonfc_ss.xml" \
-              \)
+             
           )
 
           if [[ -n "$dsds" ]]; then
-
             cp \
               "$dsds" \
               "$DEST/manifest_nonfc_dsds.xml"
 
             echo "✅ manifest_nonfc_dsds.xml restored"
-
           else
-
             echo "⚠️ manifest_nonfc_dsds.xml not found"
-
           fi
 
           if [[ -n "$ss" ]]; then
-
             cp \
               "$ss" \
               "$DEST/manifest_nonfc_ss.xml"
 
             echo "✅ manifest_nonfc_ss.xml restored"
-
           else
-
             echo "⚠️ manifest_nonfc_ss.xml not found"
-
           fi
 
       # ==========================================================
@@ -872,9 +881,7 @@ jobs:
       # ==========================================================
       # 19. DOWNLOAD OFFICIAL FASTBOOT ROM
       #
-      # RADIO ONLY.
-      #
-      # NEVER used as proprietary blob source.
+      # RADIO ONLY
       # ==========================================================
 
       - name: 📻 Download official spinel Fastboot ROM
@@ -897,18 +904,6 @@ jobs:
             exit 1
           fi
 
-          echo
-          echo "============================================================"
-          echo "📻 OFFICIAL SPINEL FASTBOOT ROM"
-          echo "============================================================"
-
-          echo
-          echo "This ROM is being downloaded ONLY for radio firmware."
-
-          echo
-          echo "URL:"
-          echo "$STOCK_URL"
-
           ROM_FILE="$RUNNER_TEMP/spinel_stock.tgz"
           ROM_DIR="$RUNNER_TEMP/spinel_fastboot"
 
@@ -916,6 +911,18 @@ jobs:
           rm -f "$ROM_FILE"
 
           mkdir -p "$ROM_DIR"
+
+          echo
+          echo "============================================================"
+          echo "📻 OFFICIAL SPINEL FASTBOOT ROM"
+          echo "============================================================"
+
+          echo
+          echo "This ROM is used ONLY for radio firmware."
+
+          echo
+          echo "URL:"
+          echo "$STOCK_URL"
 
           echo
           echo "📥 Downloading..."
@@ -953,7 +960,7 @@ jobs:
       # ==========================================================
       # 20. EXTRACT RADIO
       #
-      # ONLY THESE SPINEL RADIO IMAGES.
+      # EXACTLY THE SPINEL RADIO IMAGES.
       # ==========================================================
 
       - name: 📻 Extract spinel radio firmware
@@ -965,10 +972,10 @@ jobs:
           ROM_DIR="$RUNNER_TEMP/spinel_fastboot"
           RADIO_DIR="$GITHUB_WORKSPACE/radio"
 
+          rm -rf "$RADIO_DIR"
           mkdir -p "$RADIO_DIR"
 
           radio_files=(
-
             dpm.img
             gz.img
             lk.img
@@ -979,7 +986,6 @@ jobs:
             spmfw.img
             sspm.img
             tee.img
-
           )
 
           copied=0
@@ -998,7 +1004,7 @@ jobs:
                 -print \
                 -quit \
                 || true
-            )"
+            )
 
             if [[ -n "$src" ]]; then
 
@@ -1046,7 +1052,6 @@ jobs:
           RADIO_DIR="$GITHUB_WORKSPACE/radio"
 
           expected=(
-
             dpm.img
             gz.img
             lk.img
@@ -1057,7 +1062,6 @@ jobs:
             spmfw.img
             sspm.img
             tee.img
-
           )
 
           valid=0
@@ -1074,15 +1078,11 @@ jobs:
               size="$(stat -c '%s' "$RADIO_DIR/$name")"
 
               if [[ "$size" -gt 0 ]]; then
-
                 echo "✅ $name ($size bytes)"
                 valid=$((valid + 1))
-
               else
-
                 echo "❌ $name is empty"
                 exit 1
-
               fi
 
             else
@@ -1096,10 +1096,12 @@ jobs:
           echo
           echo "Valid radio images: $valid/${#expected[@]}"
 
-          if [[ "$valid" -eq 0 ]]; then
+          if [[ "$valid" -ne "${#expected[@]}" ]]; then
             echo "❌ Radio validation failed"
             exit 1
           fi
+
+          echo "✅ All radio images are valid"
 
       # ==========================================================
       # 22. VALIDATE GENERATED VENDOR TREE
@@ -1118,7 +1120,6 @@ jobs:
           echo "============================================================"
 
           required_files=(
-
             Android.bp
             Android.mk
             BoardConfigVendor.mk
@@ -1126,20 +1127,15 @@ jobs:
             proprietary-files.txt
             extract-files.py
             setup-makefiles.py
-
           )
 
           for file in "${required_files[@]}"; do
 
             if [[ -f "$TREE/$file" ]]; then
-
               echo "✅ $file"
-
             else
-
               echo "❌ Missing $file"
               exit 1
-
             fi
 
           done
@@ -1152,9 +1148,22 @@ jobs:
 
       # ==========================================================
       # 23. FLATTEN VENDOR TREE
+      #
+      # Everything inside device/xiaomi/spinel goes directly
+      # into repository root.
+      #
+      # This includes:
+      #
+      #   proprietary/
+      #   radio/
+      #   Android.bp
+      #   Android.mk
+      #   BoardConfigVendor.mk
+      #   spinel-vendor.mk
+      #   etc.
       # ==========================================================
 
-      - name: 📂 Flatten vendor tree
+      - name: 📂 Flatten vendor tree to repository root
         shell: bash
         run: |
           set -euo pipefail
@@ -1170,6 +1179,26 @@ jobs:
           rsync -a \
             "$SRC/" \
             "$ROOT/"
+
+          echo
+          echo "Checking root layout..."
+
+          test -f "$ROOT/Android.bp"
+          test -f "$ROOT/Android.mk"
+          test -f "$ROOT/BoardConfigVendor.mk"
+          test -f "$ROOT/spinel-vendor.mk"
+          test -d "$ROOT/proprietary"
+
+          if [[ -d "$ROOT/radio" ]]; then
+            echo "✅ radio/ is at repository root"
+          else
+            echo "⚠️ radio/ is missing"
+          fi
+
+          if [[ -d "$ROOT/vendor/xiaomi/spinel" ]]; then
+            echo "❌ Nested vendor/xiaomi/spinel detected"
+            exit 1
+          fi
 
           echo
           echo "✅ Vendor tree copied to repository root"
@@ -1189,7 +1218,6 @@ jobs:
           echo "============================================================"
 
           required_files=(
-
             Android.bp
             Android.mk
             BoardConfigVendor.mk
@@ -1197,20 +1225,15 @@ jobs:
             proprietary-files.txt
             extract-files.py
             setup-makefiles.py
-
           )
 
           for file in "${required_files[@]}"; do
 
             if [[ -f "$file" ]]; then
-
               echo "✅ $file"
-
             else
-
               echo "❌ Missing $file"
               exit 1
-
             fi
 
           done
@@ -1220,15 +1243,26 @@ jobs:
             exit 1
           fi
 
+          echo "✅ proprietary/ exists at root"
+
+          if [[ "${{ inputs.copy_radio }}" == "true" ]]; then
+
+            if [[ ! -d radio ]]; then
+              echo "❌ radio directory missing"
+              exit 1
+            fi
+
+            echo "✅ radio/ exists at root"
+
+          fi
+
           # ------------------------------------------------------
           # No nested vendor/xiaomi/spinel
           # ------------------------------------------------------
 
           if [[ -d vendor/xiaomi/spinel ]]; then
-
             echo "❌ Nested vendor/xiaomi/spinel detected"
             exit 1
-
           fi
 
           echo "✅ No nested vendor/xiaomi/spinel"
@@ -1243,7 +1277,6 @@ jobs:
 
             echo "❌ Unsupported partition entries remain"
             exit 1
-
           fi
 
           echo "✅ No unsupported partition entries"
@@ -1253,25 +1286,30 @@ jobs:
           # ------------------------------------------------------
 
           if grep -n '^bin/iwpriv' proprietary-files.txt; then
-
             echo "❌ Old iwpriv path remains"
             exit 1
-
           fi
 
-          if grep -n '^vendor/bin/iwpriv' proprietary-files.txt; then
-            echo "✅ iwpriv path is correct"
+          IWPRIV_COUNT="$(
+            grep -c '^vendor/bin/iwpriv$' \
+              proprietary-files.txt \
+              || true
+          )"
+
+          if [[ "$IWPRIV_COUNT" -ne 1 ]]; then
+            echo "❌ vendor/bin/iwpriv count is $IWPRIV_COUNT"
+            exit 1
           fi
+
+          echo "✅ iwpriv is present exactly once"
 
           # ------------------------------------------------------
           # VINTF
           # ------------------------------------------------------
 
           if grep -n 'manifest_nonfc_' proprietary-files.txt; then
-
             echo "❌ VINTF manifests still exist in proprietary list"
             exit 1
-
           fi
 
           echo "✅ Special VINTF files handled separately"
@@ -1296,11 +1334,17 @@ jobs:
           du -sh proprietary
 
           if [[ -d radio ]]; then
-
             echo
             echo "Radio size:"
             du -sh radio
 
+            echo
+            echo "Radio files:"
+            find radio \
+              -maxdepth 1 \
+              -type f \
+              -printf '%f\n' \
+              | sort
           fi
 
           echo
@@ -1336,7 +1380,9 @@ jobs:
             echo "Extract branch: ${{ inputs.extract_utils_branch }}"
             echo
             echo "Proprietary entries:"
-            grep -vE '^[[:space:]]*(#|$)' proprietary-files.txt | wc -l
+            grep -vE '^[[:space:]]*(#|$)' \
+              proprietary-files.txt \
+              | wc -l
             echo
             echo "Radio enabled: ${{ inputs.copy_radio }}"
           } > reports/build-report.md
@@ -1394,11 +1440,9 @@ jobs:
           echo "Current branch: $GITHUB_REF_NAME"
 
           if [[ "$GITHUB_REF_NAME" != "lineage-23.2" ]]; then
-
             echo
             echo "❌ Push is allowed only on lineage-23.2"
             exit 1
-
           fi
 
           git add \
@@ -1410,62 +1454,4 @@ jobs:
             extract-files.py \
             setup-makefiles.py \
             proprietary \
-            radio \
-            reports \
-            .github
-
-          if git diff --cached --quiet; then
-
-            echo "ℹ️ Nothing to commit"
-            exit 0
-
-          fi
-
-          git commit \
-            -m "vendor: generate spinel proprietary blobs"
-
-          git push \
-            origin \
-            "HEAD:lineage-23.2"
-
-          echo
-          echo "✅ Changes pushed"
-
-      # ==========================================================
-      # 29. CREATE ARTIFACT
-      # ==========================================================
-
-      - name: 📦 Create artifact
-        if: ${{ inputs.upload_artifact }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          ARTIFACT="$RUNNER_TEMP/spinel-vendor-tree.tar.gz"
-
-          tar \
-            --exclude=".git" \
-            --exclude="stock_dump" \
-            --exclude="extract-utils" \
-            --exclude="staging_android_root" \
-            --exclude="*.tgz" \
-            -czf \
-            "$ARTIFACT" \
-            .
-
-          echo
-          echo "Artifact:"
-          ls -lh "$ARTIFACT"
-
-      # ==========================================================
-      # 30. UPLOAD ARTIFACT
-      # ==========================================================
-
-      - name: ⬆️ Upload artifact
-        if: ${{ inputs.upload_artifact }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: spinel-vendor-tree
-          path: ${{ runner.temp }}/spinel-vendor-tree.tar.gz
-          if-no-files-found: error
-          retention-days: 14
+           
