@@ -368,6 +368,60 @@ jobs:
           echo "✅ Proprietary list normalized"
 
       # ==========================================================
+      # 7b. DEDUPLICATE LIST
+      # ==========================================================
+
+      - name: 🧬 Deduplicate proprietary-files.txt
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BEFORE="$(
+            grep -vE '^[[:space:]]*(#|$)' \
+              proprietary-files.txt \
+              | wc -l
+          )"
+
+          # Keep comments and blank lines exactly where they are;
+          # drop a blob line if an identical blob line already
+          # appeared earlier in the file.
+          awk '
+          {
+            line=$0
+
+            if (line ~ /^[[:space:]]*#/ || line == "") {
+              print line
+              next
+            }
+
+            if (line in seen)
+              next
+
+            seen[line] = 1
+            print line
+          }
+          ' proprietary-files.txt > proprietary-files.dedup.txt
+
+          mv proprietary-files.dedup.txt proprietary-files.txt
+
+          AFTER="$(
+            grep -vE '^[[:space:]]*(#|$)' \
+              proprietary-files.txt \
+              | wc -l
+          )"
+
+          echo
+          echo "============================================================"
+          echo "🧬 DEDUPLICATION"
+          echo "============================================================"
+
+          echo "Entries before: $BEFORE"
+          echo "Entries after:  $AFTER"
+          echo "Removed duplicates: $((BEFORE - AFTER))"
+
+          echo "✅ Deduplicated proprietary-files.txt"
+
+      # ==========================================================
       # 8. VALIDATE SOURCES
       # ==========================================================
 
@@ -1060,37 +1114,37 @@ jobs:
             | sort
 
       # ==========================================================
-      # 22. COPY DEVICE METADATA + VENDOR TREE TO ROOT
+      # 22. COPY VENDOR TREE TO ROOT (VENDOR-ONLY REPOSITORY)
       #
       # IMPORTANT:
       #
-      # vendor/xiaomi/spinel contains:
+      # This repository is a VENDOR tree only. It must contain
+      # exactly what an official LineageOS vendor/xiaomi/<device>
+      # tree contains — nothing from the device tree:
+      #
       #   Android.bp
       #   Android.mk
       #   BoardConfigVendor.mk
       #   spinel-vendor.mk
       #   proprietary/
       #
-      # device/xiaomi/spinel contains:
-      #   proprietary-files.txt
-      #   extract-files.py
-      #   setup-makefiles.py
-      #
-      # Final repo root combines both.
+      # proprietary-files.txt and extract-files.py are DEVICE tree
+      # files. They stay in the staging area / reports/ for
+      # traceability only and are never copied into the repo root,
+      # never git-added, and excluded from the release artifact.
       # ==========================================================
 
-      - name: 📂 Flatten generated tree to repository root
+      - name: 📂 Copy generated vendor tree to repository root
         shell: bash
         run: |
           set -euo pipefail
 
           VENDOR_TREE="$WORK_PARENT/vendor/xiaomi/spinel"
-          DEVICE_TREE="$WORK_PARENT/device/xiaomi/spinel"
           ROOT="$GITHUB_WORKSPACE"
 
           echo
           echo "============================================================"
-          echo "📂 FLATTENING TO REPOSITORY ROOT"
+          echo "📂 COPYING VENDOR TREE TO REPOSITORY ROOT"
           echo "============================================================"
 
           # ------------------------------------------------------
@@ -1109,26 +1163,6 @@ jobs:
             "$VENDOR_TREE/" \
             "$ROOT/"
 
-          # ------------------------------------------------------
-          # Copy device-side extraction metadata.
-          # ------------------------------------------------------
-
-          cp \
-            "$DEVICE_TREE/proprietary-files.txt" \
-            "$ROOT/proprietary-files.txt"
-
-          cp \
-            "$DEVICE_TREE/extract-files.py" \
-            "$ROOT/extract-files.py"
-
-          # NOTE: the modern Python-based LineageOS extract-utils
-          # (extract_utils.main.ExtractUtils/ExtractUtilsModule, used
-          # by extract-files.py above) generates Android.bp/Android.mk/
-          # the proprietary makefiles as part of utils.run() itself.
-          # There is no separate setup-makefiles.py/template in this
-          # toolchain (that only exists in the old shell-based
-          # extract_utils.sh workflow), so nothing to copy here.
-
           echo
           echo "Checking root..."
 
@@ -1136,12 +1170,38 @@ jobs:
           test -f "$ROOT/Android.mk"
           test -f "$ROOT/BoardConfigVendor.mk"
           test -f "$ROOT/spinel-vendor.mk"
-          test -f "$ROOT/proprietary-files.txt"
-          test -f "$ROOT/extract-files.py"
           test -d "$ROOT/proprietary"
 
           echo
-          echo "✅ Vendor tree flattened to repository root"
+          echo "✅ Vendor tree copied to repository root (vendor-only)"
+
+      # ==========================================================
+      # 22b. GITATTRIBUTES (OFFICIAL VENDOR TREE CONVENTION)
+      # ==========================================================
+
+      - name: 🧬 Write .gitattributes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROOT="$GITHUB_WORKSPACE"
+
+          cat > "$ROOT/.gitattributes" <<'EOF'
+          * text=auto eol=lf
+          *.so binary
+          *.apk binary
+          *.jar binary
+          *.img binary
+          *.bin binary
+          *.dat binary
+          *.dat.bz2 binary
+          *.dat.xz binary
+          *.axml binary
+          *.ttf binary
+          *.otf binary
+          EOF
+
+          echo "✅ .gitattributes written"
 
       # ==========================================================
       # 23. FINAL ROOT VALIDATION
@@ -1154,6 +1214,12 @@ jobs:
 
           ROOT="$GITHUB_WORKSPACE"
 
+          # Working copy of the (normalized + deduplicated) device-side
+          # proprietary-files.txt. It lives at the repo root as a build
+          # artifact of earlier steps but is never git-added or shipped
+          # in the release tarball — see the "Create artifact" step.
+          PROP_LIST="$ROOT/proprietary-files.txt"
+
           echo
           echo "============================================================"
           echo "🔬 FINAL REPOSITORY VALIDATION"
@@ -1164,8 +1230,6 @@ jobs:
             Android.mk
             BoardConfigVendor.mk
             spinel-vendor.mk
-            proprietary-files.txt
-            extract-files.py
           )
 
           for file in "${required_files[@]}"; do
@@ -1213,7 +1277,7 @@ jobs:
           # ------------------------------------------------------
 
           if grep -n '^bin/iwpriv' \
-            "$ROOT/proprietary-files.txt"; then
+            "$PROP_LIST"; then
 
             echo "❌ bin/iwpriv exists"
             exit 1
@@ -1221,7 +1285,7 @@ jobs:
 
           IWPRIV_COUNT="$(
             grep -c '^vendor/bin/iwpriv$' \
-              "$ROOT/proprietary-files.txt" \
+              "$PROP_LIST" \
               || true
           )"
 
@@ -1238,7 +1302,7 @@ jobs:
 
           if grep -nE \
             '^(system|system_ext|product|vendor_dlkm|odm_dlkm|mi_ext)/' \
-            "$ROOT/proprietary-files.txt"; then
+            "$PROP_LIST"; then
 
             echo "❌ Unsupported partition entries remain"
             exit 1
@@ -1252,7 +1316,7 @@ jobs:
 
           if grep -n \
             'manifest_nonfc_' \
-            "$ROOT/proprietary-files.txt"; then
+            "$PROP_LIST"; then
 
             echo "❌ VINTF entries remain in proprietary-files.txt"
             exit 1
@@ -1330,6 +1394,10 @@ jobs:
             proprietary-files.txt \
             reports/proprietary-files-final.txt
 
+          cp \
+            "$WORK_PARENT/device/xiaomi/spinel/extract-files.py" \
+            reports/extract-files.py
+
           {
             echo "# spinel Vendor Build Report"
             echo
@@ -1393,16 +1461,18 @@ jobs:
             exit 1
           fi
 
+          # Vendor-only repository: only the official vendor tree
+          # artifacts are committed. proprietary-files.txt,
+          # extract-files.py, and reports/ are device-tree/CI
+          # working files, never part of the tracked vendor tree.
           git add \
             Android.bp \
             Android.mk \
             BoardConfigVendor.mk \
             spinel-vendor.mk \
-            proprietary-files.txt \
-            extract-files.py \
             proprietary \
             radio \
-            reports \
+            .gitattributes \
             .github
 
           if git diff --cached --quiet; then
@@ -1437,6 +1507,9 @@ jobs:
             --exclude="extract-utils" \
             --exclude="staging_android_root" \
             --exclude="*.tgz" \
+            --exclude="./proprietary-files.txt" \
+            --exclude="./proprietary-files.original.txt" \
+            --exclude="./extract-files.py" \
             -czf \
             "$ARTIFACT" \
             .
