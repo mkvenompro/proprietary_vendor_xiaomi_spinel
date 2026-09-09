@@ -1,0 +1,28 @@
+{
+  "itemConfig": [
+    {
+      "showName": "VersionInfo"
+    },
+    {
+      "showName": "TouchScreen"
+    },
+    {
+      "showName": "Backlight"
+    },
+    {
+      "showName": "DualBackCamera"
+    },
+    {
+      "showName": "Magnetic"
+    },
+    {
+      "showName": "Sar"
+    },
+    {
+      "showName": "FastCharge"
+    },
+    {
+      "showName": "WirelessCharge"
+    }
+  ]
+}
