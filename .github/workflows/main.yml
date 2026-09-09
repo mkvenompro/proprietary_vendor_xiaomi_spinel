@@ -4,41 +4,56 @@ on:
   workflow_dispatch:
     inputs:
       STOCK_FASTBOOT_URL:
-        description: "Official Xiaomi Fastboot ROM URL"
+        description: "Optional Xiaomi Fastboot ROM URL"
         required: false
         default: "https://bigota.d.miui.com/OS2.0.212.0.VPGMIXM/spinel_global_images_OS2.0.212.0.VPGMIXM_20260311.0000.00_15.0_global_1e7d24d317.tgz"
+        type: string
 
       STOCK_DUMP_URL:
-        description: "Stock dump repository"
+        description: "Stock dump Git repository"
         required: false
         default: "https://gitlab.com/mkpromvp/dumber-2-mk.git"
+        type: string
 
       STOCK_DUMP_BRANCH:
         description: "Stock dump branch"
         required: false
         default: "dump-redmi-spinel-os2.0.212.0.vpgmixm"
+        type: string
 
       EXTRACT_UTILS_URL:
         description: "Lineage extract-utils repository"
         required: false
         default: "https://github.com/LineageOS/android_tools_extract-utils.git"
+        type: string
 
       EXTRACT_UTILS_BRANCH:
         description: "extract-utils branch"
         required: false
         default: "lineage-23.2"
+        type: string
+
+      DOWNLOAD_FASTBOOT:
+        description: "Download and extract Xiaomi Fastboot ROM for radio firmware"
+        required: false
+        default: false
+        type: boolean
 
       UPLOAD_ARTIFACTS:
-        description: "Upload generated vendor tree as artifact"
+        description: "Upload generated vendor tree artifact"
         required: false
-        type: boolean
         default: true
+        type: boolean
 
       COMMIT_CHANGES:
-        description: "Commit generated vendor tree"
+        description: "Commit and push generated files"
         required: false
-        type: boolean
         default: true
+        type: boolean
+
+
+permissions:
+  contents: write
 
 
 jobs:
@@ -46,17 +61,14 @@ jobs:
     name: 🧬 Generate Vendor Tree
     runs-on: ubuntu-24.04
 
-    permissions:
-      contents: write
-
     env:
       DEVICE: spinel
       VENDOR: xiaomi
       DEVICE_PATH: device/xiaomi/spinel
-
       STOCK_DUMP_DIR: stock_dump
       EXTRACT_UTILS_DIR: extract-utils
       ROM_DIR: fastboot_rom
+      STAGING_ROOT: staging_android_root
 
     steps:
 
@@ -71,7 +83,7 @@ jobs:
       # ============================================================
       # 2. DEPENDENCIES
       # ============================================================
-      - name: 📦 Install dependencies
+      - name: 🧰 Install dependencies
         shell: bash
         run: |
           set -euxo pipefail
@@ -84,333 +96,215 @@ jobs:
             python3 \
             python3-pip \
             python3-venv \
+            p7zip-full \
+            unzip \
             rsync \
             curl \
             wget \
-            unzip \
-            p7zip-full \
+            file \
+            cpio \
             lz4 \
             brotli \
             zstd \
-            file \
-            cpio \
-            xz-utils
+            xz-utils \
+            tar \
+            gzip \
+            bzip2 \
+            coreutils \
+            findutils \
+            sed \
+            gawk
 
-          git lfs install
+          git lfs install --skip-smudge
+
+          python3 --version
+          git --version
+          git-lfs --version
+          7z i | head -n 5
 
       # ============================================================
-      # 3. SHOW ENVIRONMENT
+      # 3. GIT NETWORK CONFIGURATION
       # ============================================================
-      - name: 🔎 Show environment
+      - name: 🌐 Configure Git networking
         shell: bash
         run: |
           set -euxo pipefail
 
-          echo "===== ENVIRONMENT ====="
-          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
-          echo "DEVICE_PATH=$DEVICE_PATH"
-          echo "PWD=$(pwd)"
-          echo
+          git config --global http.version HTTP/1.1
+          git config --global http.maxRequests 2
+          git config --global http.postBuffer 524288000
+          git config --global http.maxRequestBuffer 100M
+          git config --global core.compression 0
+          git config --global fetch.parallel 1
 
-          git --version
-          python3 --version
-          curl --version | head -n 1
-          echo
-
-          echo "===== REPOSITORY ====="
-          find . -maxdepth 3 -type f | sort | head -n 200 || true
+          git config --global http.lowSpeedLimit 0
+          git config --global http.lowSpeedTime 600
 
       # ============================================================
       # 4. CLONE STOCK DUMP
       # ============================================================
       - name: 📦 Clone stock dump
         shell: bash
+        env:
+          DUMP_URL: ${{ inputs.STOCK_DUMP_URL }}
+          DUMP_BRANCH: ${{ inputs.STOCK_DUMP_BRANCH }}
         run: |
           set -euxo pipefail
 
           rm -rf "$STOCK_DUMP_DIR"
 
-          git clone \
-            --depth 1 \
-            --branch "${{ inputs.STOCK_DUMP_BRANCH }}" \
-            "${{ inputs.STOCK_DUMP_URL }}" \
-            "$STOCK_DUMP_DIR"
+          clone_ok=false
 
-          echo "===== STOCK DUMP IDENTITY ====="
+          for attempt in 1 2 3 4 5; do
+            echo
+            echo "============================================================"
+            echo " STOCK DUMP CLONE ATTEMPT $attempt / 5"
+            echo "============================================================"
 
-          if [ -f "$STOCK_DUMP_DIR/build.prop" ]; then
-            grep -E \
-              'ro.build.version.release|ro.build.version.incremental|ro.product.device|ro.product.name|ro.board.platform' \
-              "$STOCK_DUMP_DIR/build.prop" || true
-          fi
+            rm -rf "$STOCK_DUMP_DIR"
 
-          find "$STOCK_DUMP_DIR" -maxdepth 2 -type d | sort | head -n 100
+            if GIT_LFS_SKIP_SMUDGE=1 git clone \
+                --depth 1 \
+                --single-branch \
+                --no-tags \
+                --branch "$DUMP_BRANCH" \
+                "$DUMP_URL" \
+                "$STOCK_DUMP_DIR"; then
 
-      # ============================================================
-      # 5. CLONE EXTRACT-UTILS
-      # ============================================================
-      - name: 🧰 Clone extract-utils
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          rm -rf "$EXTRACT_UTILS_DIR"
-
-          git clone \
-            --depth 1 \
-            --branch "${{ inputs.EXTRACT_UTILS_BRANCH }}" \
-            "${{ inputs.EXTRACT_UTILS_URL }}" \
-            "$EXTRACT_UTILS_DIR"
-
-          echo "===== EXTRACT-UTILS ====="
-          git -C "$EXTRACT_UTILS_DIR" rev-parse HEAD
-          git -C "$EXTRACT_UTILS_DIR" branch --show-current
-
-          test -f "$EXTRACT_UTILS_DIR/extract_utils/main.py"
-
-      # ============================================================
-      # 6. PYTHONPATH
-      # ============================================================
-      - name: 🐍 Configure extract-utils Python path
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          EXTRACT_UTILS_ROOT="$GITHUB_WORKSPACE/$EXTRACT_UTILS_DIR"
-
-          echo "PYTHONPATH=$EXTRACT_UTILS_ROOT${PYTHONPATH:+:$PYTHONPATH}" >> "$GITHUB_ENV"
-
-          export PYTHONPATH="$EXTRACT_UTILS_ROOT${PYTHONPATH:+:$PYTHONPATH}"
-
-          echo "PYTHONPATH=$PYTHONPATH"
-
-          python3 - <<'PY'
-          from extract_utils.main import (
-              ExtractUtils,
-              ExtractUtilsModule,
-          )
-
-          print("ExtractUtils: OK")
-          print("ExtractUtilsModule: OK")
-          print("extract-utils is ready.")
-          PY
-
-      # ============================================================
-      # 7. STOCK FASTBOOT ROM
-      # ============================================================
-      - name: 📥 Download official Fastboot ROM
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          URL="${{ inputs.STOCK_FASTBOOT_URL }}"
-
-          if [ -z "$URL" ]; then
-            echo "No Fastboot ROM URL supplied."
-            exit 0
-          fi
-
-          mkdir -p "$ROM_DIR"
-
-          echo "===== DOWNLOADING FASTBOOT ROM ====="
-          echo "$URL"
-
-          curl \
-            --fail \
-            --location \
-            --retry 5 \
-            --retry-delay 5 \
-            --connect-timeout 30 \
-            --max-time 7200 \
-            --continue-at - \
-            --output "$ROM_DIR/stock.tgz" \
-            "$URL"
-
-          echo
-          echo "===== FASTBOOT ROM SIZE ====="
-          du -h "$ROM_DIR/stock.tgz"
-
-      # ============================================================
-      # 8. EXTRACT FASTBOOT ROM
-      # ============================================================
-      - name: 📦 Extract Fastboot ROM
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          if [ ! -f "$ROM_DIR/stock.tgz" ]; then
-            echo "Fastboot ROM not available."
-            exit 0
-          fi
-
-          mkdir -p "$ROM_DIR/extracted"
-
-          echo "===== EXTRACTING FASTBOOT ROM ====="
-
-          tar \
-            -xzf "$ROM_DIR/stock.tgz" \
-            -C "$ROM_DIR/extracted" \
-            || {
-              echo "tar extraction failed."
-              echo "Trying 7z..."
-              7z x "$ROM_DIR/stock.tgz" -o"$ROM_DIR/extracted"
-            }
-
-          echo "===== FASTBOOT CONTENT ====="
-          find "$ROM_DIR/extracted" -maxdepth 3 -type f | sort | head -n 300 || true
-
-      # ============================================================
-      # 9. STOCK IDENTITY
-      # ============================================================
-      - name: 🔐 Verify stock identity
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          echo "===== STOCK IDENTITY ====="
-
-          echo "Expected:"
-          echo "  Device       : spinel"
-          echo "  Platform     : mt6789"
-          echo "  Android      : 15"
-          echo "  Build        : OS2.0.212.0.VPGMIXM"
-          echo "  Kernel       : 5.10.236"
-          echo
-
-          echo "===== DUMP MATCHES ====="
-
-          grep -R \
-            -E \
-            "spinel|mt6789|OS2.0.212.0.VPGMIXM|5.10.236" \
-            "$STOCK_DUMP_DIR" \
-            --include='build.prop' \
-            --include='*.prop' \
-            2>/dev/null \
-            | head -n 100 || true
-
-          echo
-          echo "===== FASTBOOT MATCHES ====="
-
-          grep -R \
-            -E \
-            "spinel|mt6789|OS2.0.212.0.VPGMIXM" \
-            "$ROM_DIR/extracted" \
-            2>/dev/null \
-            | head -n 100 || true
-
-      # ============================================================
-      # 10. DISCOVER RADIO FIRMWARE
-      # ============================================================
-      - name: 📡 Discover radio firmware
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          mkdir -p radio
-          rm -f radio/*
-
-          echo "===== SEARCHING RADIO FIRMWARE ====="
-
-          find "$STOCK_DUMP_DIR" "$ROM_DIR/extracted" \
-            -type f \
-            \( \
-              -name 'dpm.img' \
-              -o -name 'gz.img' \
-              -o -name 'lk.img' \
-              -o -name 'mcupm.img' \
-              -o -name 'md1img.img' \
-              -o -name 'pi_img.img' \
-              -o -name 'preloader_raw.img' \
-              -o -name 'scp.img' \
-              -o -name 'spmfw.img' \
-              -o -name 'sspm.img' \
-              -o -name 'tee.img' \
-            \) \
-            -print \
-            | sort -u \
-            > reports-radio-candidates.txt
-
-          cat reports-radio-candidates.txt || true
-
-          while IFS= read -r SRC; do
-            [ -z "$SRC" ] && continue
-
-            BASENAME="$(basename "$SRC")"
-
-            if [ ! -f "radio/$BASENAME" ]; then
-              cp -v "$SRC" "radio/$BASENAME"
+              clone_ok=true
+              break
             fi
-          done < reports-radio-candidates.txt
+
+            echo "⚠️ Clone attempt $attempt failed."
+
+            rm -rf "$STOCK_DUMP_DIR"
+
+            sleep $((attempt * 10))
+          done
+
+          if [[ "$clone_ok" != "true" ]]; then
+            echo "::error::Unable to clone stock dump after 5 attempts."
+            exit 1
+          fi
+
+          cd "$STOCK_DUMP_DIR"
+
+          git status
+          git rev-parse HEAD
+          git branch --show-current
 
           echo
-          echo "===== RADIO DIRECTORY ====="
-          find radio -maxdepth 1 -type f -printf '%f %s bytes\n' | sort || true
+          echo "===== STOCK DUMP TOP LEVEL ====="
+          find . -maxdepth 2 -type f | head -n 100
+
+          echo
+          echo "===== STOCK DUMP SIZE ====="
+          du -sh .
 
       # ============================================================
-      # 11. PREPARE DEVICE TREE
-      #
-      # IMPORTANT:
-      # extract-utils resolves the source tree one directory ABOVE
-      # GITHUB_WORKSPACE.
-      #
-      # Therefore create:
-      #
-      # /home/runner/work/<repo>/device/xiaomi/spinel
-      #
-      # pointing to:
-      #
-      # /home/runner/work/<repo>/<repo>/device/xiaomi/spinel
+      # 5. FETCH LFS OBJECTS
       # ============================================================
-      - name: 🔗 Prepare extract-utils source tree
+      - name: 📦 Fetch stock dump LFS objects
         shell: bash
         run: |
           set -euxo pipefail
 
-          WORK_PARENT="$(dirname "$GITHUB_WORKSPACE")"
+          cd "$STOCK_DUMP_DIR"
 
-          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
-          echo "WORK_PARENT=$WORK_PARENT"
+          if git lfs ls-files | grep -q .; then
+            echo "LFS files detected."
 
-          rm -rf "$WORK_PARENT/device"
+            lfs_ok=false
 
-          mkdir -p "$WORK_PARENT/device/xiaomi"
+            for attempt in 1 2 3 4 5; do
+              echo
+              echo "============================================================"
+              echo " LFS FETCH ATTEMPT $attempt / 5"
+              echo "============================================================"
 
-          ln -s \
-            "$GITHUB_WORKSPACE/device/xiaomi/spinel" \
-            "$WORK_PARENT/device/xiaomi/spinel"
+              if git lfs pull --include="*"; then
+                lfs_ok=true
+                break
+              fi
 
-          echo "===== DEVICE TREE LINKS ====="
+              echo "⚠️ LFS attempt $attempt failed."
+              sleep $((attempt * 10))
+            done
 
-          ls -la "$WORK_PARENT/device/xiaomi"
-          readlink -f "$WORK_PARENT/device/xiaomi/spinel"
+            if [[ "$lfs_ok" != "true" ]]; then
+              echo "::error::Unable to fetch stock dump LFS objects."
+              exit 1
+            fi
+          else
+            echo "No Git LFS files detected."
+          fi
+
+          cd ..
 
           echo
-          echo "===== PROPRIETARY FILES ====="
+          echo "===== VERIFY STOCK DUMP ====="
 
-          test -f "$WORK_PARENT/device/xiaomi/spinel/proprietary-files.txt"
+          test -d "$STOCK_DUMP_DIR"
+          test -f "$STOCK_DUMP_DIR/proprietary-files.txt"
 
-          wc -l \
-            "$WORK_PARENT/device/xiaomi/spinel/proprietary-files.txt"
+          echo "Stock dump is valid."
 
       # ============================================================
-      # 12. NORMALIZE PROPRIETARY FILES
+      # 6. LOCATE PROPRIETARY LIST
+      # ============================================================
+      - name: 🔎 Locate proprietary-files.txt
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          echo "===== SEARCHING PROPRIETARY FILES ====="
+
+          find "$STOCK_DUMP_DIR" \
+            -type f \
+            -name "proprietary-files.txt" \
+            -print
+
+          LIST=""
+
+          if [[ -f "$STOCK_DUMP_DIR/proprietary-files.txt" ]]; then
+            LIST="$STOCK_DUMP_DIR/proprietary-files.txt"
+          else
+            LIST="$(find "$STOCK_DUMP_DIR" \
+              -type f \
+              -name "proprietary-files.txt" \
+              -print -quit)"
+          fi
+
+          if [[ -z "$LIST" || ! -f "$LIST" ]]; then
+            echo "::error::Could not find proprietary-files.txt."
+            exit 1
+          fi
+
+          echo "FOUND_LIST=$LIST" >> "$GITHUB_ENV"
+
+          echo
+          echo "Using:"
+          echo "$LIST"
+
+          wc -l "$LIST"
+
+      # ============================================================
+      # 7. NORMALIZE PROPRIETARY LIST
       # ============================================================
       - name: 🧹 Normalize proprietary-files.txt
         shell: bash
         run: |
           set -euxo pipefail
 
-          FILE="$GITHUB_WORKSPACE/device/xiaomi/spinel/proprietary-files.txt"
+          mkdir -p reports
 
-          test -f "$FILE"
+          cp "$FOUND_LIST" proprietary-files.stock.txt
 
-          cp "$FILE" "$FILE.before-normalize"
-
-          python3 - "$FILE" <<'PY'
+          python3 <<'PY'
           from pathlib import Path
-          import sys
 
-          path = Path(sys.argv[1])
+          src = Path("proprietary-files.stock.txt")
+          dst = Path("proprietary-files.txt")
 
           blocked_prefixes = (
               "system/",
@@ -421,311 +315,181 @@ jobs:
               "mi_ext/",
           )
 
-          blocked_exact = {
-              "bin/iwpriv",
-              "-bin/iwpriv",
-              "-vendor/bin/iwpriv",
-              "vendor/bin/iwpriv",
-              "system_ext/priv-app/Settings/Settings.apk",
-              "-system_ext/priv-app/Settings/Settings.apk",
+          remove_exact = {
               "vendor/odm/etc/vintf/manifest_nonfc_dsds.xml",
               "vendor/odm/etc/vintf/manifest_nonfc_ss.xml",
+              "bin/iwpriv",
           }
 
-          output = []
-          seen = set()
+          removed = []
+          kept = []
 
-          removed = {
-              "blocked": 0,
-              "vintf": 0,
-              "iwpriv": 0,
-              "duplicate": 0,
-          }
+          for raw in src.read_text(errors="replace").splitlines():
+              line = raw.strip()
 
-          for raw in path.read_text(
-              encoding="utf-8",
-              errors="replace"
-          ).splitlines():
-
-              line = raw.rstrip()
-
-              if not line.strip():
+              if not line:
+                  kept.append(raw)
                   continue
 
-              if line.lstrip().startswith("#"):
-                  output.append(line)
+              if line.startswith("#"):
+                  kept.append(raw)
                   continue
 
-              src = line.split(":", 1)[0].strip()
+              # Extract source path only.
+              item = line
 
-              src_clean = src.lstrip("-").strip()
+              if item.startswith("-"):
+                  item = item[1:]
 
-              if src_clean in {
-                  "vendor/odm/etc/vintf/manifest_nonfc_dsds.xml",
-                  "vendor/odm/etc/vintf/manifest_nonfc_ss.xml",
-              }:
-                  removed["vintf"] += 1
+              item = item.split(":", 1)[0]
+              item = item.split(";", 1)[0]
+              item = item.split("|", 1)[0]
+
+              item = item.strip()
+
+              if item in remove_exact:
+                  removed.append(item)
                   continue
 
-              if src_clean in {
-                  "bin/iwpriv",
-                  "vendor/bin/iwpriv",
-              }:
-                  removed["iwpriv"] += 1
+              if item.startswith(blocked_prefixes):
+                  removed.append(item)
                   continue
 
-              if any(
-                  src_clean == prefix.rstrip("/")
-                  or src_clean.startswith(prefix)
-                  for prefix in blocked_prefixes
-              ):
-                  removed["blocked"] += 1
-                  continue
+              kept.append(raw)
 
-              if src_clean in {
-                  "system_ext/priv-app/Settings/Settings.apk",
-              }:
-                  removed["blocked"] += 1
-                  continue
+          # iwpriv is supplied as a vendor blob.
+          iwpriv_entry = "vendor/bin/iwpriv"
 
-              key = line
+          has_iwpriv = False
 
-              if key in seen:
-                  removed["duplicate"] += 1
-                  continue
+          for line in kept:
+              item = line.strip()
 
-              seen.add(key)
-              output.append(line)
+              if item.startswith("-"):
+                  item = item[1:]
 
-          if not any(
-              line.split(":", 1)[0].lstrip("-").strip()
-              == "vendor/bin/iwpriv"
-              for line in output
-              if line and not line.lstrip().startswith("#")
-          ):
-              output.append("vendor/bin/iwpriv")
+              item = item.split(":", 1)[0]
+              item = item.split(";", 1)[0]
+              item = item.split("|", 1)[0]
 
-          path.write_text(
-              "\n".join(output) + "\n",
-              encoding="utf-8",
+              if item.strip() == iwpriv_entry:
+                  has_iwpriv = True
+                  break
+
+          if not has_iwpriv:
+              kept.append(iwpriv_entry)
+
+          dst.write_text("\n".join(kept) + "\n")
+
+          Path("reports/removed-files.txt").write_text(
+              "\n".join(sorted(set(removed))) + "\n"
           )
 
-          print("===== NORMALIZATION RESULT =====")
-          print(f"Removed blocked      : {removed['blocked']}")
-          print(f"Removed VINTF        : {removed['vintf']}")
-          print(f"Removed iwpriv       : {removed['iwpriv']}")
-          print(f"Removed duplicates   : {removed['duplicate']}")
-          print(f"Final lines          : {len(output)}")
+          print(f"Removed: {len(removed)}")
+          print(f"Final lines: {len(kept)}")
           PY
 
           echo
-          echo "===== FINAL PROPRIETARY LIST ====="
-          wc -l "$FILE"
+          echo "===== NORMALIZED LIST ====="
+
+          wc -l proprietary-files.txt
 
           echo
-          echo "Comments:"
-          grep -c '^[[:space:]]*#' "$FILE" || true
+          echo "===== CHECK BLOCKED PARTITIONS ====="
 
-          echo
-          echo "Forbidden partitions:"
-          grep -E \
-            '(^|[-:])(system|system_ext|product|vendor_dlkm|odm_dlkm|mi_ext)/' \
-            "$FILE" \
-            || true
-
-      # ============================================================
-      # 13. VALIDATE PROPRIETARY FILES
-      # ============================================================
-      - name: ✅ Validate proprietary-files.txt
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          FILE="$GITHUB_WORKSPACE/device/xiaomi/spinel/proprietary-files.txt"
-
-          COUNT=0
-          INVALID=0
-          MISSING=0
-
-          echo "===== VALIDATING PROPRIETARY FILES ====="
-
-          while IFS= read -r entry || [ -n "$entry" ]; do
-
-            [ -z "$entry" ] && continue
-
-            if [[ "$entry" == \#* ]]; then
-              continue
-            fi
-
-            COUNT=$((COUNT + 1))
-
-            SRC="${entry%%:*}"
-
-            SRC="${SRC#-}"
-            SRC="$(echo "$SRC" | xargs)"
-
-            case "$SRC" in
-              system/*|system_ext/*|product/*|vendor_dlkm/*|odm_dlkm/*|mi_ext/*)
-                echo "INVALID PARTITION: $SRC"
-                INVALID=1
-                ;;
-            esac
-
-            case "$SRC" in
-              vendor/odm/etc/vintf/manifest_nonfc_dsds.xml)
-                echo "INVALID VINTF: $SRC"
-                INVALID=1
-                ;;
-              vendor/odm/etc/vintf/manifest_nonfc_ss.xml)
-                echo "INVALID VINTF: $SRC"
-                INVALID=1
-                ;;
-            esac
-
-            if [[ "$SRC" == "vendor/bin/iwpriv" ]]; then
-              :
-            elif [[ "$SRC" == "bin/iwpriv" ]]; then
-              echo "INVALID iwpriv path: $SRC"
-              INVALID=1
-            fi
-
-            FOUND=0
-
-            for ROOT in \
-              "$STOCK_DUMP_DIR" \
-              "$ROM_DIR/extracted"
-            do
-              if [ -f "$ROOT/$SRC" ]; then
-                FOUND=1
-                break
-              fi
-
-              if [ -f "$ROOT/vendor/$SRC" ]; then
-                FOUND=1
-                break
-              fi
-            done
-
-            if [ "$SRC" = "vendor/bin/iwpriv" ]; then
-              if [ -f "$STOCK_DUMP_DIR/vendor/bin/iwpriv" ]; then
-                FOUND=1
-              elif [ -f "$STOCK_DUMP_DIR/bin/iwpriv" ]; then
-                FOUND=1
-              fi
-            fi
-
-            if [ "$FOUND" -eq 0 ]; then
-              echo "MISSING: $SRC"
-              MISSING=1
-            fi
-
-          done < "$FILE"
-
-          echo
-          echo "===== VALIDATION SUMMARY ====="
-          echo "Entries : $COUNT"
-          echo "Invalid : $INVALID"
-          echo "Missing : $MISSING"
-
-          if [ "$INVALID" -ne 0 ]; then
+          if grep -E '^(system|system_ext|product|vendor_dlkm|odm_dlkm|mi_ext)/' \
+              proprietary-files.txt; then
+            echo "::error::Forbidden partition entries remain."
             exit 1
           fi
 
-          if [ "$MISSING" -ne 0 ]; then
-            exit 1
-          fi
+          echo "No forbidden partition entries."
 
-          echo "Validation PASS."
+          echo
+          echo "===== CHECK MISSING SOURCE FILES ====="
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          dump = Path("stock_dump")
+          plist = Path("proprietary-files.txt")
+
+          missing = []
+
+          for raw in plist.read_text(errors="replace").splitlines():
+              line = raw.strip()
+
+              if not line or line.startswith("#"):
+                  continue
+
+              src = line
+
+              if src.startswith("-"):
+                  src = src[1:]
+
+              src = src.split(":", 1)[0]
+              src = src.split(";", 1)[0]
+              src = src.split("|", 1)[0]
+              src = src.strip()
+
+              # vendor/bin/iwpriv is a normalized path.
+              candidates = [
+                  dump / src,
+              ]
+
+              if src.startswith("vendor/"):
+                  candidates.append(dump / src[len("vendor/"):])
+
+              if not any(p.is_file() for p in candidates):
+                  missing.append(src)
+
+          if missing:
+              print("Missing files:")
+              for item in missing[:200]:
+                  print(item)
+
+              print(f"\nTotal missing: {len(missing)}")
+              raise SystemExit(1)
+
+          print("All proprietary source files exist.")
+          PY
 
       # ============================================================
-      # 14. GENERATE EXTRACT FILES SCRIPT
+      # 8. CLONE EXTRACT UTILS
       # ============================================================
-      - name: 📝 Generate extract-files.py
+      - name: 🧬 Clone Lineage extract-utils
         shell: bash
+        env:
+          EXTRACT_URL: ${{ inputs.EXTRACT_UTILS_URL }}
+          EXTRACT_BRANCH: ${{ inputs.EXTRACT_UTILS_BRANCH }}
         run: |
           set -euxo pipefail
 
-          cat > device/xiaomi/spinel/extract-files.py <<'PY'
-          #!/usr/bin/env python3
+          rm -rf "$EXTRACT_UTILS_DIR"
 
-          from extract_utils.main import (
-              ExtractUtils,
-              ExtractUtilsModule,
-          )
+          git clone \
+            --depth 1 \
+            --single-branch \
+            --no-tags \
+            --branch "$EXTRACT_BRANCH" \
+            "$EXTRACT_URL" \
+            "$EXTRACT_UTILS_DIR"
 
+          test -d "$EXTRACT_UTILS_DIR/extract_utils"
 
-          def main():
-              module = ExtractUtilsModule(
-                  "spinel",
-                  "xiaomi",
-                  check_elf=True,
-                  add_firmware_proprietary_file=False,
-              )
-
-              utils = ExtractUtils(module)
-              utils.run()
-
-
-          if __name__ == "__main__":
-              main()
-          PY
-
-          chmod +x device/xiaomi/spinel/extract-files.py
-
-          python3 -m py_compile \
-            device/xiaomi/spinel/extract-files.py
-
-          cat device/xiaomi/spinel/extract-files.py
+          echo "EXTRACT_UTILS_ROOT=$GITHUB_WORKSPACE/$EXTRACT_UTILS_DIR" >> "$GITHUB_ENV"
 
       # ============================================================
-      # 15. GENERATE SETUP MAKEFILES
+      # 9. CONFIGURE PYTHONPATH
       # ============================================================
-      - name: 📝 Generate setup-makefiles.py
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          cat > device/xiaomi/spinel/setup-makefiles.py <<'PY'
-          #!/usr/bin/env python3
-
-          from extract_utils.main import (
-              ExtractUtils,
-              ExtractUtilsModule,
-          )
-
-
-          def main():
-              module = ExtractUtilsModule(
-                  "spinel",
-                  "xiaomi",
-                  check_elf=True,
-                  add_firmware_proprietary_file=False,
-              )
-
-              utils = ExtractUtils(module)
-              utils.run()
-
-
-          if __name__ == "__main__":
-              main()
-          PY
-
-          chmod +x device/xiaomi/spinel/setup-makefiles.py
-
-          python3 -m py_compile \
-            device/xiaomi/spinel/setup-makefiles.py
-
-      # ============================================================
-      # 16. FINAL IMPORT TEST
-      # ============================================================
-      - name: 🐍 Final extract-utils import test
+      - name: 🐍 Configure extract-utils Python path
         shell: bash
         run: |
           set -euxo pipefail
 
           export PYTHONPATH="$GITHUB_WORKSPACE/$EXTRACT_UTILS_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
-          echo "===== FINAL IMPORT TEST ====="
+          echo "PYTHONPATH=$PYTHONPATH" >> "$GITHUB_ENV"
 
           python3 - <<'PY'
           from extract_utils.main import (
@@ -733,520 +497,717 @@ jobs:
               ExtractUtilsModule,
           )
 
-          print("ExtractUtils: OK")
-          print("ExtractUtilsModule: OK")
-          print("extract-utils is ready.")
+          print("extract-utils import: OK")
+          print(ExtractUtils)
+          print(ExtractUtilsModule)
           PY
 
       # ============================================================
-      # 17. RUN EXTRACT-UTILS
-      #
-      # Run from the PARENT workspace because extract-utils expects
-      # the Android source root there.
+      # 10. PREPARE REAL ANDROID ROOT
       # ============================================================
-      - name: 🧬 Run extract-utils
+      - name: 🏗️ Prepare Android root staging tree
         shell: bash
         run: |
           set -euxo pipefail
 
-          WORK_PARENT="$(dirname "$GITHUB_WORKSPACE")"
+          WORK_PARENT="$GITHUB_WORKSPACE/$STAGING_ROOT"
 
-          export PYTHONPATH="$GITHUB_WORKSPACE/$EXTRACT_UTILS_DIR${PYTHONPATH:+:$PYTHONPATH}"
+          rm -rf "$WORK_PARENT"
 
-          echo "===== EXTRACT ROOT ====="
-          echo "$WORK_PARENT"
+          mkdir -p \
+            "$WORK_PARENT/device/xiaomi/spinel" \
+            "$WORK_PARENT/tools"
+
+          echo "WORK_PARENT=$WORK_PARENT" >> "$GITHUB_ENV"
+
+          # Link extract-utils into the Android root.
+          ln -s \
+            "$GITHUB_WORKSPACE/$EXTRACT_UTILS_DIR" \
+            "$WORK_PARENT/tools/extract-utils"
+
+          # IMPORTANT:
+          # Do NOT use a symlink for device/xiaomi/spinel.
+          # The previous workflow failed because the symlink target
+          # did not exist. This is a REAL directory now.
+
+          cp \
+            proprietary-files.txt \
+            "$WORK_PARENT/device/xiaomi/spinel/proprietary-files.txt"
+
+          test -f \
+            "$WORK_PARENT/device/xiaomi/spinel/proprietary-files.txt"
 
           echo
-          echo "===== DEVICE TREE ====="
-          ls -la "$WORK_PARENT/device/xiaomi/spinel"
+          echo "===== STAGING TREE ====="
+
+          find "$WORK_PARENT/device/xiaomi/spinel" \
+            -maxdepth 1 \
+            -type f \
+            -printf '%f\n'
 
           echo
-          echo "===== PROPRIETARY FILES ====="
+          echo "===== VERIFY STAGING PATH ====="
+
+          test -d "$WORK_PARENT/device/xiaomi/spinel"
           test -f "$WORK_PARENT/device/xiaomi/spinel/proprietary-files.txt"
-          wc -l "$WORK_PARENT/device/xiaomi/spinel/proprietary-files.txt"
 
-          echo
-          echo "===== RUNNING EXTRACT-UTILS ====="
+          pwd
+          ls -ld "$WORK_PARENT"
+          ls -ld "$WORK_PARENT/device"
+          ls -ld "$WORK_PARENT/device/xiaomi"
+          ls -ld "$WORK_PARENT/device/xiaomi/spinel"
+
+      # ============================================================
+      # 11. CREATE extract-files.py
+      # ============================================================
+      - name: 🐍 Create extract-files.py
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cat > "$WORK_PARENT/device/xiaomi/spinel/extract-files.py" <<'PY'
+          #!/usr/bin/env -S PYTHONPATH=../../../tools/extract-utils python3
+
+          from extract_utils.main import (
+              ExtractUtils,
+              ExtractUtilsModule,
+          )
+
+          module = ExtractUtilsModule(
+              "spinel",
+              "xiaomi",
+              check_elf=True,
+              add_firmware_proprietary_file=False,
+          )
+
+          if __name__ == "__main__":
+              utils = ExtractUtils.device(module)
+              utils.run()
+          PY
+
+          chmod +x "$WORK_PARENT/device/xiaomi/spinel/extract-files.py"
+
+          test -x "$WORK_PARENT/device/xiaomi/spinel/extract-files.py"
+
+          sed -n '1,120p' \
+            "$WORK_PARENT/device/xiaomi/spinel/extract-files.py"
+
+      # ============================================================
+      # 12. PREPARE REPORT DIRECTORY
+      # ============================================================
+      - name: 📝 Prepare reports
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          mkdir -p reports
+
+          cp \
+            proprietary-files.txt \
+            reports/proprietary-files-final.txt
+
+          {
+            echo "Device: $DEVICE"
+            echo "Vendor: $VENDOR"
+            echo "Dump: ${{ inputs.STOCK_DUMP_URL }}"
+            echo "Dump branch: ${{ inputs.STOCK_DUMP_BRANCH }}"
+            echo "Extract utils: ${{ inputs.EXTRACT_UTILS_URL }}"
+            echo "Extract branch: ${{ inputs.EXTRACT_UTILS_BRANCH }}"
+            echo
+            echo "Proprietary entries:"
+            grep -vE '^[[:space:]]*(#|$)' proprietary-files.txt | wc -l
+          } > reports/build-info.txt
+
+      # ============================================================
+      # 13. EXTRACT PROPRIETARY BLOBS
+      # ============================================================
+      - name: 🧬 Extract proprietary blobs
+        shell: bash
+        run: |
+          set -euxo pipefail
 
           cd "$WORK_PARENT"
 
-          python3 \
-            "$GITHUB_WORKSPACE/device/xiaomi/spinel/extract-files.py" \
-            --kang
+          echo
+          echo "============================================================"
+          echo " STARTING LINEAGE EXTRACT-UTILS"
+          echo "============================================================"
 
-      # ============================================================
-      # 18. LOCATE GENERATED TREE
-      # ============================================================
-      - name: 🔎 Locate generated vendor tree
-        shell: bash
-        run: |
-          set -euxo pipefail
+          echo "PWD=$(pwd)"
+          echo "Source=$GITHUB_WORKSPACE/$STOCK_DUMP_DIR"
+          echo "Device tree=$(pwd)/device/xiaomi/spinel"
 
-          WORK_PARENT="$(dirname "$GITHUB_WORKSPACE")"
+          test -d device/xiaomi/spinel
+          test -f device/xiaomi/spinel/proprietary-files.txt
+          test -x device/xiaomi/spinel/extract-files.py
 
-          echo "===== SEARCHING GENERATED TREE ====="
-
-          find "$WORK_PARENT" \
-            -maxdepth 6 \
-            -type d \
-            -path '*/vendor/xiaomi/spinel' \
-            -print \
-            || true
+          PYTHONPATH="$GITHUB_WORKSPACE/$EXTRACT_UTILS_DIR" \
+            python3 \
+            device/xiaomi/spinel/extract-files.py \
+            "$GITHUB_WORKSPACE/$STOCK_DUMP_DIR"
 
           echo
-          echo "===== GENERATED FILES ====="
+          echo "============================================================"
+          echo " EXTRACTION FINISHED"
+          echo "============================================================"
 
-          find "$WORK_PARENT/vendor/xiaomi/spinel" \
+          test -d vendor/xiaomi/spinel
+
+          echo
+          echo "===== GENERATED VENDOR TREE ====="
+
+          find vendor/xiaomi/spinel \
             -maxdepth 3 \
             -type f \
-            2>/dev/null \
+            -printf '%p %s bytes\n' \
             | sort \
-            | head -n 300 \
-            || true
+            | head -n 200
+
+          echo
+          echo "===== VENDOR TREE SIZE ====="
+
+          du -sh vendor/xiaomi/spinel
 
       # ============================================================
-      # 19. RESTORE MANUAL VINTF
+      # 14. RESTORE MANUAL VINTF FILES
       # ============================================================
       - name: 🛠️ Restore manual ODM VINTF manifests
         shell: bash
         run: |
           set -euxo pipefail
 
-          WORK_PARENT="$(dirname "$GITHUB_WORKSPACE")"
-          GENERATED="$WORK_PARENT/vendor/xiaomi/spinel"
+          DEST="$WORK_PARENT/vendor/xiaomi/spinel/proprietary/odm/etc/vintf"
 
-          mkdir -p reports
+          mkdir -p "$DEST"
 
-          mkdir -p \
-            "$GENERATED/proprietary/odm/etc/vintf"
+          restored=0
 
-          FOUND_DSDS=""
-          FOUND_SS=""
+          for file in \
+            manifest_nonfc_dsds.xml \
+            manifest_nonfc_ss.xml; do
 
-          for ROOT in \
-            "$STOCK_DUMP_DIR" \
-            "$ROM_DIR/extracted"
-          do
-            if [ -z "$FOUND_DSDS" ] && \
-               [ -f "$ROOT/vendor/odm/etc/vintf/manifest_nonfc_dsds.xml" ]; then
-              FOUND_DSDS="$ROOT/vendor/odm/etc/vintf/manifest_nonfc_dsds.xml"
-            fi
+            if [[ -f "$STOCK_DUMP_DIR/vendor/odm/etc/vintf/$file" ]]; then
+              cp -v \
+                "$STOCK_DUMP_DIR/vendor/odm/etc/vintf/$file" \
+                "$DEST/$file"
 
-            if [ -z "$FOUND_SS" ] && \
-               [ -f "$ROOT/vendor/odm/etc/vintf/manifest_nonfc_ss.xml" ]; then
-              FOUND_SS="$ROOT/vendor/odm/etc/vintf/manifest_nonfc_ss.xml"
+              restored=$((restored + 1))
+            else
+              echo "⚠️ Missing source VINTF: $file"
             fi
           done
 
-          echo "DSDS=$FOUND_DSDS"
-          echo "SS=$FOUND_SS"
-
-          if [ -n "$FOUND_DSDS" ]; then
-            cp \
-              "$FOUND_DSDS" \
-              "$GENERATED/proprietary/odm/etc/vintf/manifest_nonfc_dsds.xml"
-          fi
-
-          if [ -n "$FOUND_SS" ]; then
-            cp \
-              "$FOUND_SS" \
-              "$GENERATED/proprietary/odm/etc/vintf/manifest_nonfc_ss.xml"
-          fi
-
           {
-            echo "# Manually restored ODM VINTF manifests."
-            echo "PRODUCT_COPY_FILES += \\"
-
-            if [ -f "$GENERATED/proprietary/odm/etc/vintf/manifest_nonfc_dsds.xml" ]; then
-              echo "    vendor/xiaomi/spinel/proprietary/odm/etc/vintf/manifest_nonfc_dsds.xml:\$(TARGET_COPY_OUT_VENDOR)/odm/etc/vintf/manifest_nonfc_dsds.xml \\"
-            fi
-
-            if [ -f "$GENERATED/proprietary/odm/etc/vintf/manifest_nonfc_ss.xml" ]; then
-              echo "    vendor/xiaomi/spinel/proprietary/odm/etc/vintf/manifest_nonfc_ss.xml:\$(TARGET_COPY_OUT_VENDOR)/odm/etc/vintf/manifest_nonfc_ss.xml"
-            fi
+            echo "Manual VINTF restoration"
+            echo "Restored: $restored"
+            echo
+            find "$DEST" \
+              -maxdepth 1 \
+              -type f \
+              -printf '%f\n' \
+              | sort
           } > reports/manual-vintf.txt
 
+          echo
           cat reports/manual-vintf.txt
 
       # ============================================================
-      # 20. ADD MANUAL VINTF TO VENDOR MAKEFILE
+      # 15. COPY VINTF MAKE RULES
       # ============================================================
-      - name: 🧩 Add manual VINTF to vendor makefile
+      - name: 🧩 Add manual VINTF make rules
         shell: bash
         run: |
           set -euxo pipefail
 
-          WORK_PARENT="$(dirname "$GITHUB_WORKSPACE")"
-          GENERATED="$WORK_PARENT/vendor/xiaomi/spinel"
+          MK="$WORK_PARENT/vendor/xiaomi/spinel/spinel-vendor.mk"
 
-          MAKEFILE=""
+          if [[ -f "$MK" ]]; then
+            cat >> "$MK" <<'EOF'
 
-          for FILE in \
-            "$GENERATED/spinel-vendor.mk" \
-            "$GENERATED/vendor/xiaomi/spinel-vendor.mk" \
-            "$GENERATED/spinel-vendor-blobs.mk"
-          do
-            if [ -f "$FILE" ]; then
-              MAKEFILE="$FILE"
+          # Manually restored ODM VINTF manifests.
+          PRODUCT_COPY_FILES += \
+              vendor/xiaomi/spinel/proprietary/odm/etc/vintf/manifest_nonfc_dsds.xml:$(TARGET_COPY_OUT_VENDOR)/odm/etc/vintf/manifest_nonfc_dsds.xml \
+              vendor/xiaomi/spinel/proprietary/odm/etc/vintf/manifest_nonfc_ss.xml:$(TARGET_COPY_OUT_VENDOR)/odm/etc/vintf/manifest_nonfc_ss.xml
+          EOF
+          else
+            echo "⚠️ spinel-vendor.mk was not generated."
+          fi
+
+      # ============================================================
+      # 16. OPTIONAL FASTBOOT ROM
+      # ============================================================
+      - name: 📦 Download Xiaomi Fastboot ROM
+        if: ${{ inputs.DOWNLOAD_FASTBOOT }}
+        shell: bash
+        env:
+          FASTBOOT_URL: ${{ inputs.STOCK_FASTBOOT_URL }}
+        run: |
+          set -euxo pipefail
+
+          rm -rf "$ROM_DIR"
+          mkdir -p "$ROM_DIR"
+
+          FILE_NAME="$(basename "$FASTBOOT_URL")"
+          ARCHIVE="$ROM_DIR/$FILE_NAME"
+
+          download_ok=false
+
+          for attempt in 1 2 3 4 5; do
+            echo
+            echo "============================================================"
+            echo " FASTBOOT DOWNLOAD ATTEMPT $attempt / 5"
+            echo "============================================================"
+
+            if curl \
+              --fail \
+              --location \
+              --retry 5 \
+              --retry-all-errors \
+              --connect-timeout 30 \
+              --max-time 0 \
+              --continue-at - \
+              --output "$ARCHIVE" \
+              "$FASTBOOT_URL"; then
+
+              download_ok=true
               break
             fi
+
+            echo "⚠️ Fastboot download attempt $attempt failed."
+            sleep $((attempt * 10))
           done
 
-          if [ -z "$MAKEFILE" ]; then
-            MAKEFILE="$(find "$GENERATED" \
-              -maxdepth 4 \
-              -type f \
-              \( \
-                -name '*-vendor.mk' \
-                -o \
-                -name '*vendor*.mk' \
-              \) \
-              | head -n 1 || true)"
+          if [[ "$download_ok" != "true" ]]; then
+            echo "::error::Fastboot ROM download failed."
+            exit 1
           fi
 
-          echo "Vendor makefile: $MAKEFILE"
+          test -s "$ARCHIVE"
 
-          if [ -n "$MAKEFILE" ] && [ -f "$MAKEFILE" ]; then
+          echo
+          echo "===== FASTBOOT ARCHIVE ====="
 
-            {
-              echo
-              echo "# ============================================================"
-              echo "# Manually restored ODM VINTF manifests"
-              echo "# ============================================================"
-
-              cat "$GITHUB_WORKSPACE/reports/manual-vintf.txt"
-
-            } >> "$MAKEFILE"
-
-          else
-            echo "WARNING: Vendor makefile was not found."
-          fi
+          ls -lh "$ARCHIVE"
+          file "$ARCHIVE"
 
       # ============================================================
-      # 21. GENERATE MINIMAL BOARDCONFIG VENDOR
+      # 17. EXTRACT FASTBOOT ROM
       # ============================================================
-      - name: 📝 Generate BoardConfigVendor.mk
+      - name: 📂 Extract Xiaomi Fastboot ROM
+        if: ${{ inputs.DOWNLOAD_FASTBOOT }}
         shell: bash
         run: |
           set -euxo pipefail
 
-          WORK_PARENT="$(dirname "$GITHUB_WORKSPACE")"
-          GENERATED="$WORK_PARENT/vendor/xiaomi/spinel"
+          ARCHIVE="$(find "$ROM_DIR" -maxdepth 1 -type f | head -n 1)"
 
-          cat > "$GENERATED/BoardConfigVendor.mk" <<'EOF'
-          # SPDX-License-Identifier: Apache-2.0
+          test -n "$ARCHIVE"
+          test -f "$ARCHIVE"
 
-          # Xiaomi Redmi Note 15 4G
-          # Codename: spinel
-          # Platform: MediaTek MT6789
-          # Android 15 / HyperOS 2 base
+          mkdir -p "$ROM_DIR/extracted"
 
-          # NOTE:
-          # Raw MediaTek firmware images are kept in radio/ for reference.
-          # They are NOT added to AB_OTA_PARTITIONS here.
-          #
-          # Device firmware must come from the exact spinel firmware package.
-          EOF
+          7z x \
+            "$ARCHIVE" \
+            "-o$ROM_DIR/extracted" \
+            -y
 
-          echo "===== BoardConfigVendor.mk ====="
-          cat "$GENERATED/BoardConfigVendor.mk"
+          echo
+          echo "===== FASTBOOT EXTRACTION ====="
 
-      # ============================================================
-      # 22. COPY RADIO DIRECTORY
-      # ============================================================
-      - name: 📡 Copy discovered radio firmware
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          WORK_PARENT="$(dirname "$GITHUB_WORKSPACE")"
-          GENERATED="$WORK_PARENT/vendor/xiaomi/spinel"
-
-          mkdir -p "$GENERATED/radio"
-
-          if [ -d "$GITHUB_WORKSPACE/radio" ]; then
-            cp -av \
-              "$GITHUB_WORKSPACE/radio/." \
-              "$GENERATED/radio/" \
-              || true
-          fi
-
-          echo "===== RADIO ====="
-          find "$GENERATED/radio" \
-            -maxdepth 1 \
-            -type f \
-            -printf '%f %s bytes\n' \
-            | sort \
-            || true
-
-      # ============================================================
-      # 23. FLATTEN REPOSITORY
-      #
-      # IMPORTANT:
-      # GitHub repository root must contain:
-      #
-      # Android.bp
-      # Android.mk
-      # BoardConfigVendor.mk
-      # spinel-vendor.mk
-      # proprietary-files.txt
-      # extract-files.py
-      # setup-makefiles.py
-      # proprietary/
-      # radio/
-      #
-      # NOT:
-      # vendor/xiaomi/spinel/
-      # ============================================================
-      - name: 📁 Flatten vendor tree into repository root
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          WORK_PARENT="$(dirname "$GITHUB_WORKSPACE")"
-          GENERATED="$WORK_PARENT/vendor/xiaomi/spinel"
-
-          test -d "$GENERATED"
-
-          echo "===== GENERATED TREE BEFORE FLATTEN ====="
-
-          find "$GENERATED" \
-            -maxdepth 3 \
+          find "$ROM_DIR/extracted" \
+            -maxdepth 4 \
             -type f \
             | sort \
             | head -n 300
 
-          echo
-          echo "===== COPYING TO REPOSITORY ROOT ====="
+      # ============================================================
+      # 18. COPY RADIO FIRMWARE
+      # ============================================================
+      - name: 📡 Copy radio firmware
+        if: ${{ inputs.DOWNLOAD_FASTBOOT }}
+        shell: bash
+        run: |
+          set -euxo pipefail
 
-          for ITEM in \
-            Android.bp \
-            Android.mk \
-            BoardConfigVendor.mk \
-            spinel-vendor.mk \
-            proprietary-files.txt \
-            extract-files.py \
-            setup-makefiles.py
-          do
-            if [ -f "$GENERATED/$ITEM" ]; then
-              cp -av \
-                "$GENERATED/$ITEM" \
-                "$GITHUB_WORKSPACE/$ITEM"
+          mkdir -p radio
+
+          IMAGE_ROOT="$ROM_DIR/extracted"
+
+          mapfile -t RADIO_FILES < <(
+            find "$IMAGE_ROOT" \
+              -type f \
+              \( \
+                -name "dpm.img" \
+                -o -name "gz.img" \
+                -o -name "lk.img" \
+                -o -name "mcupm.img" \
+                -o -name "md1img.img" \
+                -o -name "pi_img.img" \
+                -o -name "scp.img" \
+                -o -name "spmfw.img" \
+                -o -name "sspm.img" \
+                -o -name "tee.img" \
+              \) \
+              | sort
+          )
+
+          if [[ "${#RADIO_FILES[@]}" -eq 0 ]]; then
+            echo "::error::No radio firmware images were found."
+            exit 1
+          fi
+
+          for SRC in "${RADIO_FILES[@]}"; do
+            BASENAME="$(basename "$SRC")"
+
+            if [[ ! -f "radio/$BASENAME" ]]; then
+              cp -v "$SRC" "radio/$BASENAME"
             fi
           done
 
-          if [ -d "$GENERATED/proprietary" ]; then
-            rm -rf "$GITHUB_WORKSPACE/proprietary"
-            cp -a \
-              "$GENERATED/proprietary" \
-              "$GITHUB_WORKSPACE/proprietary"
-          fi
+          echo
+          echo "===== RADIO DIRECTORY ====="
 
-          if [ -d "$GENERATED/radio" ]; then
-            rm -rf "$GITHUB_WORKSPACE/radio"
-            cp -a \
-              "$GENERATED/radio" \
-              "$GITHUB_WORKSPACE/radio"
-          fi
+          find radio \
+            -maxdepth 1 \
+            -type f \
+            -printf '%f %s bytes\n' \
+            | sort
+
+      # ============================================================
+      # 19. CREATE BOARD CONFIG RADIO ENTRIES
+      # ============================================================
+      - name: 🧩 Create radio BoardConfigVendor.mk
+        if: ${{ inputs.DOWNLOAD_FASTBOOT }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          BOARD="$WORK_PARENT/vendor/xiaomi/spinel/BoardConfigVendor.mk"
+
+          mkdir -p \
+            "$WORK_PARENT/vendor/xiaomi/spinel"
+
+          {
+            echo
+            echo "# ============================================================"
+            echo "# Xiaomi spinel firmware partitions"
+            echo "# ============================================================"
+
+            echo "AB_OTA_PARTITIONS += \\"
+
+            find "$GITHUB_WORKSPACE/radio" \
+              -maxdepth 1 \
+              -type f \
+              -name '*.img' \
+              -printf '%f\n' \
+              | sed 's/\.img$//' \
+              | sort \
+              | awk '
+                {
+                  if (NR > 1) printf "    "
+                  printf "%s", $0
+                  if (!last) printf " \\\n"
+                  last = 1
+                }
+              '
+
+            echo
+          } >> "$BOARD"
+
+      # ============================================================
+      # 20. FLATTEN GENERATED VENDOR TREE
+      # ============================================================
+      - name: 📦 Flatten vendor tree into repository root
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          GENERATED="$WORK_PARENT/vendor/xiaomi/spinel"
+
+          test -d "$GENERATED"
 
           echo
-          echo "===== ROOT RESULT ====="
+          echo "===== GENERATED TREE BEFORE FLATTEN ====="
+
+          find "$GENERATED" \
+            -maxdepth 2 \
+            -type f \
+            -printf '%p\n' \
+            | sort \
+            | head -n 200
+
+          # Preserve generated files from the actual vendor tree.
+          rsync -a \
+            --delete \
+            "$GENERATED/" \
+            "$GITHUB_WORKSPACE/vendor_generated/"
+
+          # Copy generated vendor repository contents to repository root.
+          rsync -a \
+            "$GENERATED/" \
+            "$GITHUB_WORKSPACE/"
+
+          # Copy proprietary-files.txt from staging.
+          cp \
+            "$WORK_PARENT/device/xiaomi/spinel/proprietary-files.txt" \
+            "$GITHUB_WORKSPACE/proprietary-files.txt"
+
+          # Copy extraction scripts.
+          cp \
+            "$WORK_PARENT/device/xiaomi/spinel/extract-files.py" \
+            "$GITHUB_WORKSPACE/extract-files.py"
+
+          # Generate a small setup script matching the repository layout.
+          cat > "$GITHUB_WORKSPACE/setup-makefiles.py" <<'PY'
+          #!/usr/bin/env python3
+
+          from pathlib import Path
+
+          print("This vendor repository was generated using")
+          print("LineageOS android_tools_extract-utils lineage-23.2.")
+          print()
+          print("The actual extraction script is extract-files.py.")
+          print("The proprietary blob list is proprietary-files.txt.")
+          print()
+          print("Vendor tree root:", Path(__file__).resolve().parent)
+          PY
+
+          chmod +x "$GITHUB_WORKSPACE/extract-files.py"
+
+          echo
+          echo "===== REPOSITORY ROOT AFTER FLATTEN ====="
 
           find "$GITHUB_WORKSPACE" \
             -maxdepth 2 \
             -type f \
             | sed "s#^$GITHUB_WORKSPACE/##" \
-            | sort
+            | sort \
+            | head -n 300
 
       # ============================================================
-      # 24. REMOVE CONTAMINATION
+      # 21. REMOVE NESTED CONTAMINATION
       # ============================================================
-      - name: 🧹 Remove generated nested vendor directory
+      - name: 🧹 Remove nested vendor/device contamination
         shell: bash
         run: |
           set -euxo pipefail
 
+          # These are build staging directories only.
           rm -rf \
-            "$GITHUB_WORKSPACE/vendor"
+            "$GITHUB_WORKSPACE/vendor_generated" \
+            "$GITHUB_WORKSPACE/vendor" \
+            "$GITHUB_WORKSPACE/device" \
+            "$GITHUB_WORKSPACE/system" \
+            "$GITHUB_WORKSPACE/system_ext" \
+            "$GITHUB_WORKSPACE/product" \
+            "$GITHUB_WORKSPACE/odm_dlkm" \
+            "$GITHUB_WORKSPACE/vendor_dlkm" \
+            "$GITHUB_WORKSPACE/mi_ext"
 
-          echo "Nested vendor directory removed."
+          # The generated vendor tree is expected to be flattened
+          # directly into the repository root.
+          test -f "$GITHUB_WORKSPACE/Android.bp"
+          test -f "$GITHUB_WORKSPACE/Android.mk"
+          test -f "$GITHUB_WORKSPACE/BoardConfigVendor.mk"
+          test -f "$GITHUB_WORKSPACE/spinel-vendor.mk"
+          test -f "$GITHUB_WORKSPACE/proprietary-files.txt"
+          test -d "$GITHUB_WORKSPACE/proprietary"
+
+          echo "Repository root layout is valid."
 
       # ============================================================
-      # 25. VERIFY FINAL TREE
+      # 22. VERIFY FINAL TREE
       # ============================================================
-      - name: 🔍 Verify final vendor repository
+      - name: 🔍 Verify final vendor tree
         shell: bash
         run: |
           set -euxo pipefail
 
           cd "$GITHUB_WORKSPACE"
 
-          echo "===== ROOT FILES ====="
+          echo
+          echo "============================================================"
+          echo " FINAL VENDOR TREE"
+          echo "============================================================"
 
-          for FILE in \
+          find . \
+            -maxdepth 3 \
+            -type f \
+            -not -path './.git/*' \
+            | sort \
+            | head -n 500
+
+          echo
+          echo "===== REQUIRED ROOT FILES ====="
+
+          for file in \
             Android.bp \
             Android.mk \
             BoardConfigVendor.mk \
             spinel-vendor.mk \
             proprietary-files.txt \
             extract-files.py \
-            setup-makefiles.py
-          do
-            if [ -f "$FILE" ]; then
-              echo "OK: $FILE"
-            else
-              echo "MISSING: $FILE"
-              exit 1
-            fi
+            setup-makefiles.py; do
+
+            test -f "$file"
+            echo "OK: $file"
           done
 
           echo
-          echo "===== REQUIRED DIRECTORIES ====="
+          echo "===== PROPRIETARY TREE ====="
 
           test -d proprietary
-          echo "OK: proprietary/"
 
-          if [ -d radio ]; then
-            echo "OK: radio/"
-          else
-            echo "INFO: radio/ not present"
-          fi
+          find proprietary \
+            -type f \
+            | wc -l
 
           echo
           echo "===== CONTAMINATION CHECK ====="
 
-          if [ -d vendor/xiaomi/spinel ]; then
-            echo "ERROR: nested vendor/xiaomi/spinel exists"
+          forbidden=0
+
+          for dir in \
+            vendor \
+            device \
+            system \
+            system_ext \
+            product \
+            vendor_dlkm \
+            odm_dlkm \
+            mi_ext; do
+
+            if [[ -e "$dir" ]]; then
+              echo "::error::Forbidden nested directory exists: $dir"
+              forbidden=1
+            fi
+          done
+
+          if [[ "$forbidden" -ne 0 ]]; then
             exit 1
           fi
 
-          if find . \
-            -path './.git' -prune -o \
-            -type f \
-            -path './system/*' \
-            -print \
-            | grep -q .
-          then
-            echo "ERROR: system files found"
-            exit 1
-          fi
-
-          if find . \
-            -path './.git' -prune -o \
-            -type f \
-            -path './system_ext/*' \
-            -print \
-            | grep -q .
-          then
-            echo "ERROR: system_ext files found"
-            exit 1
-          fi
-
-          if find . \
-            -path './.git' -prune -o \
-            -type f \
-            -path './product/*' \
-            -print \
-            | grep -q .
-          then
-            echo "ERROR: product files found"
-            exit 1
-          fi
+          echo "No nested Android source-tree contamination."
 
           echo
-          echo "===== FINAL TREE ====="
+          echo "===== PROPRIETARY LIST CHECK ====="
 
-          find . \
-            -path './.git' -prune -o \
-            -type f \
-            -print \
-            | sort \
-            | head -n 500
+          if grep -E \
+            '^(system|system_ext|product|vendor_dlkm|odm_dlkm|mi_ext)/' \
+            proprietary-files.txt; then
 
-      # ============================================================
-      # 26. FINAL REPORT
-      # ============================================================
-      - name: 📊 Generate reports
-        shell: bash
-        run: |
-          set -euxo pipefail
+            echo "::error::Forbidden partition entry remains."
+            exit 1
+          fi
 
-          mkdir -p reports
+          echo "Partition list is clean."
 
-          {
-            echo "=========================================="
-            echo "SPINEL VENDOR TREE REPORT"
-            echo "=========================================="
-            echo
-            echo "Device       : spinel"
-            echo "Vendor       : xiaomi"
-            echo "Platform     : MT6789"
-            echo "Android      : 15"
-            echo "Base         : HyperOS 2"
-            echo "Build        : OS2.0.212.0.VPGMIXM"
-            echo "Kernel       : 5.10.236"
-            echo
-            echo "Generated at : $(date -u)"
-            echo
-            echo "=========================================="
-            echo "PROPRIETARY FILES"
-            echo "=========================================="
+          echo
+          echo "===== VINTF CHECK ====="
 
-            if [ -f proprietary-files.txt ]; then
-              wc -l proprietary-files.txt
-            fi
+          test -f \
+            proprietary/odm/etc/vintf/manifest_nonfc_dsds.xml
 
-            echo
-            echo "=========================================="
-            echo "RADIO"
-            echo "=========================================="
+          test -f \
+            proprietary/odm/etc/vintf/manifest_nonfc_ss.xml
 
+          echo "Manual ODM VINTF manifests present."
+
+          echo
+          echo "===== RADIO CHECK ====="
+
+          if [[ -d radio ]]; then
             find radio \
               -maxdepth 1 \
               -type f \
               -printf '%f %s bytes\n' \
-              2>/dev/null \
-              | sort \
-              || true
+              | sort
+          else
+            echo "Radio directory not generated because FASTBOOT download was disabled."
+          fi
 
-            echo
-            echo "=========================================="
-            echo "TREE SIZE"
-            echo "=========================================="
+          echo
+          echo "===== FINAL SIZE ====="
 
-            du -sh . || true
-
-          } > reports/vendor-tree-report.txt
-
-          cat reports/vendor-tree-report.txt
+          du -sh .
 
       # ============================================================
-      # 27. GIT STATUS
+      # 23. CREATE BUILD REPORT
+      # ============================================================
+      - name: 📊 Generate final report
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          {
+            echo "=============================================="
+            echo "Xiaomi spinel Vendor Tree"
+            echo "=============================================="
+            echo
+            echo "Device: $DEVICE"
+            echo "Vendor: $VENDOR"
+            echo "Android base: HyperOS 2 / Android 15"
+            echo "Kernel source generation base: 5.10"
+            echo
+            echo "Stock dump:"
+            echo "${{ inputs.STOCK_DUMP_URL }}"
+            echo
+            echo "Stock branch:"
+            echo "${{ inputs.STOCK_DUMP_BRANCH }}"
+            echo
+            echo "Extract-utils:"
+            echo "${{ inputs.EXTRACT_UTILS_URL }}"
+            echo
+            echo "Extract branch:"
+            echo "${{ inputs.EXTRACT_UTILS_BRANCH }}"
+            echo
+            echo "Fastboot download:"
+            echo "${{ inputs.DOWNLOAD_FASTBOOT }}"
+            echo
+            echo "----------------------------------------------"
+            echo "Root files:"
+            find . \
+              -maxdepth 1 \
+              -type f \
+              -printf '%f\n' \
+              | sort
+            echo
+            echo "Proprietary blob files:"
+            find proprietary \
+              -type f \
+              | wc -l
+            echo
+            echo "Proprietary list entries:"
+            grep -vE '^[[:space:]]*(#|$)' proprietary-files.txt | wc -l
+            echo
+            echo "Repository size:"
+            du -sh .
+          } > reports/final-report.txt
+
+          cat reports/final-report.txt
+
+      # ============================================================
+      # 24. GIT STATUS
       # ============================================================
       - name: 📋 Git status
         shell: bash
         run: |
           set -euxo pipefail
 
-          cd "$GITHUB_WORKSPACE"
-
           git status --short
 
           echo
-          echo "===== CHANGED FILE COUNT ====="
-
+          echo "Changed files:"
           git status --short | wc -l
 
       # ============================================================
-      # 28. COMMIT
+      # 25. COMMIT
       # ============================================================
       - name: 💾 Commit generated vendor tree
         if: ${{ inputs.COMMIT_CHANGES }}
         shell: bash
         run: |
           set -euxo pipefail
-
-          cd "$GITHUB_WORKSPACE"
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -1259,18 +1220,27 @@ jobs:
           fi
 
           git commit \
-            -m "spinel: regenerate LineageOS vendor tree"
-
-          git push
+            -m "vendor: generate proprietary blobs for spinel"
 
       # ============================================================
-      # 29. UPLOAD ARTIFACTS
+      # 26. PUSH
       # ============================================================
-      - name: 📦 Upload generated vendor tree
-        if: ${{ inputs.UPLOAD_ARTIFACTS }}
+      - name: 🚀 Push generated vendor tree
+        if: ${{ inputs.COMMIT_CHANGES }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          git push origin HEAD:${GITHUB_REF_NAME}
+
+      # ============================================================
+      # 27. ARTIFACT
+      # ============================================================
+      - name: 📤 Upload vendor tree artifact
+        if: ${{ inputs.UPLOAD_ARTIFACTS && success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: spinel-vendor-tree
+          name: proprietary_vendor_xiaomi_spinel
           path: |
             Android.bp
             Android.mk
@@ -1282,5 +1252,21 @@ jobs:
             proprietary/
             radio/
             reports/
-          if-no-files-found: warn
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      # ============================================================
+      # 28. FAILURE ARTIFACT
+      # ============================================================
+      - name: 📤 Upload failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: spinel-vendor-build-failure
+          path: |
+            reports/
+            proprietary-files.txt
+            proprietary-files.stock.txt
+          if-no-files-found: ignore
           retention-days: 7
