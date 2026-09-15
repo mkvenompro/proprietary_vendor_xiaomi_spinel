@@ -885,7 +885,11 @@ jobs:
 
           LIST="$DEVICE_TREE/proprietary-files.txt"
           cp "$LIST" "$LIST.orig"
-          sed 's|^vendor/odm/|odm/|' "$LIST.orig" > "$LIST"
+          sed 's|^vendor/odm/|odm/|' "$LIST.orig" > "$LIST.tmp"
+          grep -v '^system_ext/priv-app/Settings/Settings\.apk$' "$LIST.tmp" > "$LIST"
+          rm -f "$LIST.tmp"
+          echo "Dropped stock Settings.apk line (absent from dump; stock"
+          echo "Settings package collides with platform Settings)."
           echo "Entries before: $(grep -c . "$LIST.orig" || true)"
           echo "Entries after:  $(grep -c . "$LIST" || true)"
           echo "odm-prefixed entries: $(grep -c '^odm/' "$LIST" || true)"
