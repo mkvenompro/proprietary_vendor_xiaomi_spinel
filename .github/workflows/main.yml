@@ -324,18 +324,18 @@ jobs:
           echo "system_ext       = $SYSTEM_EXT"
           echo "product          = $PRODUCT"
 
-          if [[ "$TOTAL" -ne 6371 ]]; then
-            echo "❌ Expected 6371 entries"
+          if [[ "$TOTAL" -ne 6372 ]]; then
+            echo "❌ Expected 6372 entries"
             exit 1
           fi
 
-          if [[ "$VENDOR" -ne 4459 ]]; then
-            echo "❌ Expected 4459 vendor entries"
+          if [[ "$VENDOR" -ne 4457 ]]; then
+            echo "❌ Expected 4457 vendor entries"
             exit 1
           fi
 
-          if [[ "$SYSTEM_EXT" -ne 1910 ]]; then
-            echo "❌ Expected 1910 system_ext entries"
+          if [[ "$SYSTEM_EXT" -ne 1911 ]]; then
+            echo "❌ Expected 1911 system_ext entries"
             exit 1
           fi
 
@@ -957,8 +957,8 @@ jobs:
 
           echo "$COUNT"
 
-          if [[ "$COUNT" -ne 6371 ]]; then
-            echo "❌ Expected 6371 proprietary files"
+          if [[ "$COUNT" -ne 6372 ]]; then
+            echo "❌ Expected 6372 proprietary files"
             exit 1
           fi
 
@@ -1194,8 +1194,8 @@ jobs:
 
           echo "$COUNT"
 
-          if [[ "$COUNT" -ne 6371 ]]; then
-            echo "❌ Expected 6371 proprietary files"
+          if [[ "$COUNT" -ne 6372 ]]; then
+            echo "❌ Expected 6372 proprietary files"
             exit 1
           fi
 
