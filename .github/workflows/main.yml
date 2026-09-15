@@ -1,4 +1,4 @@
-name: ðŸ§¬ Build LineageOS Vendor Tree â€¢ spinel
+name: 🧬 Build LineageOS Vendor Tree • spinel
 
 on:
   workflow_dispatch:
@@ -68,7 +68,7 @@ env:
 
 jobs:
   build-vendor:
-    name: ðŸ§¬ Generate Vendor Tree
+    name: 🧬 Generate Vendor Tree
     runs-on: ubuntu-24.04
 
     permissions:
@@ -80,41 +80,41 @@ jobs:
       # 1. CONFIG
       # ==========================================================
 
-      - name: ðŸ“‹ Show configuration
+      - name: 📋 Show configuration
         shell: bash
         run: |
           set -euo pipefail
 
           echo "============================================================"
-          echo "ðŸ§¬ MKVenomPro â€¢ spinel Vendor Builder"
+          echo "🧬 MKVenomPro • spinel Vendor Builder"
           echo "============================================================"
 
           echo
-          echo "ðŸ“± DEVICE"
+          echo "📱 DEVICE"
           echo "DEVICE              = $DEVICE"
           echo "VENDOR              = $VENDOR"
 
           echo
-          echo "ðŸ“¦ STOCK DUMP"
+          echo "📦 STOCK DUMP"
           echo "REPOSITORY          = $STOCK_DUMP_REPO"
           echo "BRANCH              = ${{ inputs.stock_dump_branch }}"
 
           echo
-          echo "ðŸ“± DEVICE TREE (offical extract files)"
+          echo "📱 DEVICE TREE (offical extract files)"
           echo "REPOSITORY          = $DEVICE_TREE_REPO"
 
           echo
-          echo "ðŸ§° EXTRACT UTILS"
+          echo "🧰 EXTRACT UTILS"
           echo "REPOSITORY          = $EXTRACT_UTILS_REPO"
           echo "BRANCH              = ${{ inputs.extract_utils_branch }}"
 
           echo
-          echo "ðŸ“» RADIO"
+          echo "📻 RADIO"
           echo "URL                  = ${{ inputs.stock_rom_url }}"
           echo "ENABLED              = ${{ inputs.copy_radio }}"
 
           echo
-          echo "âš™ï¸ OPTIONS"
+          echo "⚙️ OPTIONS"
           echo "CLONE RETRIES        = ${{ inputs.clone_retries }}"
           echo "LFS RETRIES          = ${{ inputs.lfs_retries }}"
           echo "PUSH CHANGES         = ${{ inputs.push_changes }}"
@@ -124,7 +124,7 @@ jobs:
       # 2. CHECKOUT
       # ==========================================================
 
-      - name: ðŸ“¥ Checkout repository
+      - name: 📥 Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -133,7 +133,7 @@ jobs:
       # 3. DEPENDENCIES
       # ==========================================================
 
-      - name: ðŸ“¦ Install dependencies
+      - name: 📦 Install dependencies
         shell: bash
         run: |
           set -euo pipefail
@@ -167,7 +167,7 @@ jobs:
       # 4. GIT CONFIG
       # ==========================================================
 
-      - name: âš™ï¸ Configure Git
+      - name: ⚙️ Configure Git
         shell: bash
         run: |
           set -euo pipefail
@@ -182,7 +182,7 @@ jobs:
       # 5. STOCK DUMP
       # ==========================================================
 
-      - name: ðŸ“¥ Clone stock dump
+      - name: 📥 Clone stock dump
         shell: bash
         env:
           STOCK_BRANCH: ${{ inputs.stock_dump_branch }}
@@ -197,7 +197,7 @@ jobs:
           for attempt in $(seq 1 "$RETRIES"); do
             echo
             echo "============================================================"
-            echo "ðŸ“¥ Stock dump clone attempt $attempt/$RETRIES"
+            echo "📥 Stock dump clone attempt $attempt/$RETRIES"
             echo "============================================================"
 
             rm -rf "$STOCK_DUMP_DIR"
@@ -212,12 +212,12 @@ jobs:
               break
             fi
 
-            echo "âš ï¸ Clone failed"
+            echo "⚠️ Clone failed"
             sleep 10
           done
 
           if [[ "$success" != "1" ]]; then
-            echo "âŒ Stock dump clone failed"
+            echo "❌ Stock dump clone failed"
             exit 1
           fi
 
@@ -228,7 +228,7 @@ jobs:
           for attempt in $(seq 1 "$RETRIES"); do
             echo
             echo "============================================================"
-            echo "ðŸ“¦ Git LFS attempt $attempt/$RETRIES"
+            echo "📦 Git LFS attempt $attempt/$RETRIES"
             echo "============================================================"
 
             if git lfs fetch --all && git lfs checkout; then
@@ -236,18 +236,18 @@ jobs:
               break
             fi
 
-            echo "âš ï¸ Git LFS failed"
+            echo "⚠️ Git LFS failed"
             sleep 10
           done
 
           if [[ "$lfs_success" != "1" ]]; then
-            echo "âŒ Git LFS failed"
+            echo "❌ Git LFS failed"
             exit 1
           fi
 
           cd "$GITHUB_WORKSPACE"
 
-          echo "âœ… Stock dump ready"
+          echo "✅ Stock dump ready"
 
           echo
           echo "Dump root layout:"
@@ -266,7 +266,7 @@ jobs:
       # list is authoritative (vendor + system_ext + product).
       # ==========================================================
 
-      - name: ðŸ“± Clone official spinel device tree
+      - name: 📱 Clone official spinel device tree
         shell: bash
         run: |
           set -euo pipefail
@@ -286,7 +286,7 @@ jobs:
           echo "Device tree files:"
           ls "$DEVICE_TREE_DIR"
 
-      - name: âœ… Validate official extraction files
+      - name: ✅ Validate official extraction files
         shell: bash
         run: |
           set -euo pipefail
@@ -300,7 +300,7 @@ jobs:
 
           echo
           echo "============================================================"
-          echo "ðŸ“Š OFFICIAL LIST VALIDATION"
+          echo "📊 OFFICIAL LIST VALIDATION"
           echo "============================================================"
 
           TOTAL=$(
@@ -325,22 +325,22 @@ jobs:
           echo "product          = $PRODUCT"
 
           if [[ "$TOTAL" -ne 6371 ]]; then
-            echo "âŒ Expected 6371 entries"
+            echo "❌ Expected 6371 entries"
             exit 1
           fi
 
           if [[ "$VENDOR" -ne 4459 ]]; then
-            echo "âŒ Expected 4459 vendor entries"
+            echo "❌ Expected 4459 vendor entries"
             exit 1
           fi
 
           if [[ "$SYSTEM_EXT" -ne 1910 ]]; then
-            echo "âŒ Expected 1910 system_ext entries"
+            echo "❌ Expected 1910 system_ext entries"
             exit 1
           fi
 
           if [[ "$PRODUCT" -ne 2 ]]; then
-            echo "âŒ Expected 2 product entries"
+            echo "❌ Expected 2 product entries"
             exit 1
           fi
 
@@ -348,12 +348,12 @@ jobs:
             '^(system|vendor_dlkm|odm_dlkm|mi_ext|bin)/' \
             "$LIST"; then
 
-            echo "âŒ Unsupported partition/legacy entries remain"
+            echo "❌ Unsupported partition/legacy entries remain"
             exit 1
           fi
 
           if grep -nE '^\-' "$LIST"; then
-            echo "âŒ 'package' (dash-prefixed) entries remain"
+            echo "❌ 'package' (dash-prefixed) entries remain"
             exit 1
           fi
 
@@ -362,11 +362,11 @@ jobs:
           )
 
           if [[ "$IWPRIV_COUNT" -ne 1 ]]; then
-            echo "âŒ Expected exactly one vendor/bin/iwpriv"
+            echo "❌ Expected exactly one vendor/bin/iwpriv"
             exit 1
           fi
 
-          echo "âœ… vendor/bin/iwpriv exists exactly once"
+          echo "✅ vendor/bin/iwpriv exists exactly once"
 
           FIRMWARE_TOTAL=$(
             grep -vcE '^[[:space:]]*(#|$)' "$FIRMWARE_LIST"
@@ -376,7 +376,7 @@ jobs:
           echo "Firmware entries: $FIRMWARE_TOTAL"
 
           if [[ "$FIRMWARE_TOTAL" -ne 11 ]]; then
-            echo "âŒ Expected 11 firmware entries"
+            echo "❌ Expected 11 firmware entries"
             exit 1
           fi
 
@@ -385,13 +385,13 @@ jobs:
           grep -vE '^[[:space:]]*(#|$)' "$FIRMWARE_LIST"
 
           echo
-          echo "âœ… Official extraction files validated"
+          echo "✅ Official extraction files validated"
 
       # ==========================================================
       # 7. EXTRACT UTILS
       # ==========================================================
 
-      - name: ðŸ§° Clone Lineage extract-utils
+      - name: 🧰 Clone Lineage extract-utils
         shell: bash
         env:
           EXTRACT_BRANCH: ${{ inputs.extract_utils_branch }}
@@ -409,7 +409,7 @@ jobs:
           echo "extract-utils commit:"
           git -C "$EXTRACT_UTILS_DIR" rev-parse HEAD
 
-      - name: ðŸ§ª Verify extract-utils
+      - name: 🧪 Verify extract-utils
         shell: bash
         run: |
           set -euo pipefail
@@ -421,7 +421,7 @@ jobs:
               ExtractUtilsModule,
           )
 
-          print("âœ… ExtractUtils import OK")
+          print("✅ ExtractUtils import OK")
           print(ExtractUtils)
           print(ExtractUtilsModule)
           PY
@@ -430,7 +430,7 @@ jobs:
       # 8. STAGING ROOT
       # ==========================================================
 
-      - name: ðŸ—ï¸ Prepare staging Android root
+      - name: 🏗️ Prepare staging Android root
         shell: bash
         run: |
           set -euo pipefail
@@ -453,7 +453,7 @@ jobs:
       # 9. DEVICE EXTRACTION FILES (OFFICIAL)
       # ==========================================================
 
-      - name: ðŸ“± Install official spinel extraction files
+      - name: 📱 Install official spinel extraction files
         shell: bash
         run: |
           set -euo pipefail
@@ -474,7 +474,7 @@ jobs:
             "$DEVICE_TREE/proprietary-firmware.txt"
 
           if [[ "${{ inputs.copy_radio }}" != "true" ]]; then
-            echo "â„¹ï¸ copy_radio=false: disabling firmware extraction"
+            echo "ℹ️ copy_radio=false: disabling firmware extraction"
             sed -i \
               's/add_firmware_proprietary_file=True/add_firmware_proprietary_file=False/' \
               "$DEVICE_TREE/extract-files.py"
@@ -493,7 +493,7 @@ jobs:
       # 10. COPY EXTRACT UTILS PHYSICALLY
       # ==========================================================
 
-      - name: ðŸ“¦ Copy extract-utils into staging
+      - name: 📦 Copy extract-utils into staging
         shell: bash
         run: |
           set -euo pipefail
@@ -519,7 +519,7 @@ jobs:
       # ubuntu-24.04 is 0.18.x, so both names map to it.
       # ==========================================================
 
-      - name: ðŸ”§ Install patchelf prebuilts
+      - name: 🔧 Install patchelf prebuilts
         shell: bash
         run: |
           set -euo pipefail
@@ -531,7 +531,7 @@ jobs:
           PATCHELF_SRC="$(command -v patchelf)"
 
           if [[ -z "$PATCHELF_SRC" ]]; then
-            echo "âŒ patchelf binary not found"
+            echo "❌ patchelf binary not found"
             exit 1
           fi
 
@@ -557,7 +557,7 @@ jobs:
       # 12. VERIFY ROOT
       # ==========================================================
 
-      - name: ðŸ§ª Verify staging Android root
+      - name: 🧪 Verify staging Android root
         shell: bash
         run: |
           set -euo pipefail
@@ -587,20 +587,20 @@ jobs:
 
           if actual != expected:
               raise SystemExit(
-                  f"âŒ Android root mismatch\n"
+                  f"❌ Android root mismatch\n"
                   f"Expected: {expected}\n"
                   f"Actual: {actual}"
               )
 
           print()
-          print("âœ… Android root is correct")
+          print("✅ Android root is correct")
           PY
 
       # ==========================================================
       # 13. DOWNLOAD OFFICIAL ROM FOR RADIO ONLY
       # ==========================================================
 
-      - name: ðŸ“» Download official spinel Fastboot ROM
+      - name: 📻 Download official spinel Fastboot ROM
         if: ${{ inputs.copy_radio }}
         shell: bash
         env:
@@ -609,7 +609,7 @@ jobs:
           set -euo pipefail
 
           if [[ -z "$STOCK_URL" ]]; then
-            echo "âŒ Stock ROM URL is empty"
+            echo "❌ Stock ROM URL is empty"
             exit 1
           fi
 
@@ -623,7 +623,7 @@ jobs:
 
           echo
           echo "============================================================"
-          echo "ðŸ“» OFFICIAL SPINEL FASTBOOT ROM"
+          echo "📻 OFFICIAL SPINEL FASTBOOT ROM"
           echo "============================================================"
 
           echo
@@ -660,14 +660,14 @@ jobs:
             -xzf "$ROM_FILE" \
             -C "$ROM_DIR"
 
-          echo "âœ… Fastboot ROM extracted"
+          echo "✅ Fastboot ROM extracted"
 
           echo
           echo "ROM content:"
           find "$ROM_DIR" -maxdepth 2 -type f -printf '%f\n' | sort
 
       # ==========================================================
-      # 14. RADIO â†’ STOCK DUMP ROOT
+      # 14. RADIO → STOCK DUMP ROOT
       #
       # The official proprietary-firmware.txt maps each partition
       # image by src:dst (here src:lk.img). extract-utils' DiskSource
@@ -676,7 +676,7 @@ jobs:
       # and the src name before extraction.
       # ==========================================================
 
-      - name: ðŸ“» Stage spinel radio firmware into dump root
+      - name: 📻 Stage spinel radio firmware into dump root
         if: ${{ inputs.copy_radio }}
         shell: bash
         run: |
@@ -703,7 +703,7 @@ jobs:
 
           echo
           echo "============================================================"
-          echo "ðŸ“» STAGING SPINEL RADIO INTO DUMP ROOT"
+          echo "📻 STAGING SPINEL RADIO INTO DUMP ROOT"
           echo "============================================================"
 
           for spec in "${firmware_specs[@]}"; do
@@ -731,12 +731,12 @@ jobs:
             done
 
             if [[ -z "$found" ]]; then
-              echo "âŒ $spec NOT FOUND in ROM"
+              echo "❌ $spec NOT FOUND in ROM"
               exit 1
             fi
 
             cp "$found" "$DUMP_ROOT/$dst"
-            echo "âœ… $dst"
+            echo "✅ $dst"
 
             if [[ "$src" != "$dst" ]]; then
               cp "$found" "$DUMP_ROOT/$src"
@@ -754,13 +754,13 @@ jobs:
             | sort
 
           echo
-          echo "âœ… Radio firmware staged"
+          echo "✅ Radio firmware staged"
 
       # ==========================================================
       # 15. EXTRACTION
       # ==========================================================
 
-      - name: ðŸ§¬ Extract proprietary blobs
+      - name: 🧬 Extract proprietary blobs
         shell: bash
         run: |
           set -euo pipefail
@@ -774,7 +774,7 @@ jobs:
 
           echo
           echo "============================================================"
-          echo "ðŸ§¬ STARTING LINEAGE EXTRACT-UTILS"
+          echo "🧬 STARTING LINEAGE EXTRACT-UTILS"
           echo "============================================================"
 
           echo "Android root:"
@@ -815,7 +815,7 @@ jobs:
           test -f "$DEVICE_TREE/proprietary-firmware.txt"
           test -f "$DEVICE_TREE/extract-files.py"
 
-          echo "âœ… Extraction files exist"
+          echo "✅ Extraction files exist"
 
           echo
           echo "Starting extractor..."
@@ -826,7 +826,7 @@ jobs:
 
           echo
           echo "============================================================"
-          echo "âœ… EXTRACTION COMPLETED"
+          echo "✅ EXTRACTION COMPLETED"
           echo "============================================================"
 
           echo
@@ -834,7 +834,7 @@ jobs:
           echo "$VENDOR_TREE"
 
           if [[ ! -d "$VENDOR_TREE" ]]; then
-            echo "âŒ extract-utils did not create vendor/xiaomi/spinel"
+            echo "❌ extract-utils did not create vendor/xiaomi/spinel"
             echo
             echo "Actual staging directories:"
             find "$WORK_PARENT" \
@@ -845,7 +845,7 @@ jobs:
           fi
 
           if [[ ! -d "$VENDOR_TREE/proprietary" ]]; then
-            echo "âŒ proprietary directory was not generated"
+            echo "❌ proprietary directory was not generated"
             echo
             echo "Generated vendor tree:"
             find "$VENDOR_TREE" \
@@ -856,13 +856,13 @@ jobs:
           fi
 
           echo
-          echo "âœ… vendor/xiaomi/spinel/proprietary exists"
+          echo "✅ vendor/xiaomi/spinel/proprietary exists"
 
       # ==========================================================
       # 16. INSPECT CORRECT GENERATED TREE
       # ==========================================================
 
-      - name: ðŸ”Ž Inspect generated vendor tree
+      - name: 🔎 Inspect generated vendor tree
         shell: bash
         run: |
           set -euo pipefail
@@ -871,7 +871,7 @@ jobs:
 
           echo
           echo "============================================================"
-          echo "ðŸ”Ž GENERATED VENDOR TREE"
+          echo "🔎 GENERATED VENDOR TREE"
           echo "============================================================"
 
           echo
@@ -905,7 +905,7 @@ jobs:
       # 17. VALIDATE GENERATED VENDOR TREE
       # ==========================================================
 
-      - name: âœ… Validate generated vendor tree
+      - name: ✅ Validate generated vendor tree
         shell: bash
         run: |
           set -euo pipefail
@@ -914,7 +914,7 @@ jobs:
 
           echo
           echo "============================================================"
-          echo "âœ… VENDOR TREE VALIDATION"
+          echo "✅ VENDOR TREE VALIDATION"
           echo "============================================================"
 
           required_files=(
@@ -927,9 +927,9 @@ jobs:
           for file in "${required_files[@]}"; do
 
             if [[ -f "$VENDOR_TREE/$file" ]]; then
-              echo "âœ… $file"
+              echo "✅ $file"
             else
-              echo "âŒ Missing $file"
+              echo "❌ Missing $file"
               exit 1
             fi
 
@@ -938,9 +938,9 @@ jobs:
           for part in vendor system_ext product; do
 
             if [[ -d "$VENDOR_TREE/proprietary/$part" ]]; then
-              echo "âœ… proprietary/$part"
+              echo "✅ proprietary/$part"
             else
-              echo "âŒ Missing proprietary/$part"
+              echo "❌ Missing proprietary/$part"
               exit 1
             fi
 
@@ -958,11 +958,11 @@ jobs:
           echo "$COUNT"
 
           if [[ "$COUNT" -ne 6371 ]]; then
-            echo "âŒ Expected 6371 proprietary files"
+            echo "❌ Expected 6371 proprietary files"
             exit 1
           fi
 
-          echo "âœ… proprietary file count matches official list"
+          echo "✅ proprietary file count matches official list"
 
           if [[ "${{ inputs.copy_radio }}" == "true" ]]; then
 
@@ -970,7 +970,7 @@ jobs:
             echo "Radio directory:"
 
             if [[ ! -d "$VENDOR_TREE/radio" ]]; then
-              echo "âŒ radio/ missing"
+              echo "❌ radio/ missing"
               exit 1
             fi
 
@@ -987,11 +987,11 @@ jobs:
             echo "Radio file count: $RADIO_COUNT"
 
             if [[ "$RADIO_COUNT" -ne 11 ]]; then
-              echo "âŒ Expected 11 radio files"
+              echo "❌ Expected 11 radio files"
               exit 1
             fi
 
-            echo "âœ… 11 radio images extracted"
+            echo "✅ 11 radio images extracted"
 
             SHA1_RULES="$(
               grep -c 'add-radio-file-sha1-checked' \
@@ -1003,11 +1003,11 @@ jobs:
             echo "add-radio-file-sha1-checked rules: $SHA1_RULES"
 
             if [[ "$SHA1_RULES" -ne 11 ]]; then
-              echo "âŒ Expected 11 radio sha1 rules in Android.mk"
+              echo "❌ Expected 11 radio sha1 rules in Android.mk"
               exit 1
             fi
 
-            echo "âœ… Radio sha1 rules present"
+            echo "✅ Radio sha1 rules present"
 
             if grep -q 'AB_OTA_PARTITIONS' \
               "$VENDOR_TREE/BoardConfigVendor.mk"; then
@@ -1018,7 +1018,7 @@ jobs:
                 "$VENDOR_TREE/BoardConfigVendor.mk"
 
             else
-              echo "âŒ AB_OTA_PARTITIONS missing"
+              echo "❌ AB_OTA_PARTITIONS missing"
               exit 1
             fi
 
@@ -1042,7 +1042,7 @@ jobs:
       #
       # This repository is a VENDOR tree only. It must contain
       # exactly what an official LineageOS vendor/xiaomi/<device>
-      # tree contains â€” nothing from the device tree:
+      # tree contains — nothing from the device tree:
       #
       #   Android.bp
       #   Android.mk
@@ -1057,7 +1057,7 @@ jobs:
       # never git-added, and excluded from the release artifact.
       # ==========================================================
 
-      - name: ðŸ“‚ Copy generated vendor tree to repository root
+      - name: 📂 Copy generated vendor tree to repository root
         shell: bash
         run: |
           set -euo pipefail
@@ -1067,7 +1067,7 @@ jobs:
 
           echo
           echo "============================================================"
-          echo "ðŸ“‚ COPYING VENDOR TREE TO REPOSITORY ROOT"
+          echo "📂 COPYING VENDOR TREE TO REPOSITORY ROOT"
           echo "============================================================"
 
           # ------------------------------------------------------
@@ -1097,13 +1097,13 @@ jobs:
           test -d "$ROOT/proprietary"
 
           echo
-          echo "âœ… Vendor tree copied to repository root (vendor-only)"
+          echo "✅ Vendor tree copied to repository root (vendor-only)"
 
       # ==========================================================
       # 18b. GITATTRIBUTES (OFFICIAL VENDOR TREE CONVENTION)
       # ==========================================================
 
-      - name: ðŸ§¬ Write .gitattributes
+      - name: 🧬 Write .gitattributes
         shell: bash
         run: |
           set -euo pipefail
@@ -1125,13 +1125,13 @@ jobs:
           *.otf binary
           EOF
 
-          echo "âœ… .gitattributes written"
+          echo "✅ .gitattributes written"
 
       # ==========================================================
       # 19. FINAL ROOT VALIDATION
       # ==========================================================
 
-      - name: ðŸ”¬ Final repository validation
+      - name: 🔬 Final repository validation
         shell: bash
         run: |
           set -euo pipefail
@@ -1144,7 +1144,7 @@ jobs:
 
           echo
           echo "============================================================"
-          echo "ðŸ”¬ FINAL REPOSITORY VALIDATION"
+          echo "🔬 FINAL REPOSITORY VALIDATION"
           echo "============================================================"
 
           required_files=(
@@ -1157,29 +1157,29 @@ jobs:
           for file in "${required_files[@]}"; do
 
             if [[ -f "$ROOT/$file" ]]; then
-              echo "âœ… $file"
+              echo "✅ $file"
             else
-              echo "âŒ Missing $file"
+              echo "❌ Missing $file"
               exit 1
             fi
 
           done
 
           if [[ ! -d "$ROOT/proprietary" ]]; then
-            echo "âŒ proprietary/ missing"
+            echo "❌ proprietary/ missing"
             exit 1
           fi
 
-          echo "âœ… proprietary/"
+          echo "✅ proprietary/"
 
           for part in vendor system_ext product; do
 
             if [[ ! -d "$ROOT/proprietary/$part" ]]; then
-              echo "âŒ proprietary/$part missing"
+              echo "❌ proprietary/$part missing"
               exit 1
             fi
 
-            echo "âœ… proprietary/$part"
+            echo "✅ proprietary/$part"
 
           done
 
@@ -1195,18 +1195,18 @@ jobs:
           echo "$COUNT"
 
           if [[ "$COUNT" -ne 6371 ]]; then
-            echo "âŒ Expected 6371 proprietary files"
+            echo "❌ Expected 6371 proprietary files"
             exit 1
           fi
 
           if [[ "${{ inputs.copy_radio }}" == "true" ]]; then
 
             if [[ ! -d "$ROOT/radio" ]]; then
-              echo "âŒ radio/ missing"
+              echo "❌ radio/ missing"
               exit 1
             fi
 
-            echo "âœ… radio/"
+            echo "✅ radio/"
 
             RADIO_COUNT="$(
               find "$ROOT/radio" \
@@ -1218,7 +1218,7 @@ jobs:
             echo "Radio file count: $RADIO_COUNT"
 
             if [[ "$RADIO_COUNT" -ne 11 ]]; then
-              echo "âŒ Expected 11 radio files"
+              echo "❌ Expected 11 radio files"
               exit 1
             fi
 
@@ -1231,15 +1231,15 @@ jobs:
             echo "Radio sha1 rules: $SHA1_RULES"
 
             if [[ "$SHA1_RULES" -ne 11 ]]; then
-              echo "âŒ Expected 11 radio sha1 rules in Android.mk"
+              echo "❌ Expected 11 radio sha1 rules in Android.mk"
               exit 1
             fi
 
             if grep -q 'AB_OTA_PARTITIONS' \
               "$ROOT/BoardConfigVendor.mk"; then
-              echo "âœ… AB_OTA_PARTITIONS present in BoardConfigVendor.mk"
+              echo "✅ AB_OTA_PARTITIONS present in BoardConfigVendor.mk"
             else
-              echo "âŒ AB_OTA_PARTITIONS missing"
+              echo "❌ AB_OTA_PARTITIONS missing"
               exit 1
             fi
 
@@ -1250,11 +1250,11 @@ jobs:
           # ------------------------------------------------------
 
           if [[ -d "$ROOT/vendor/xiaomi/spinel" ]]; then
-            echo "âŒ Nested vendor/xiaomi/spinel exists in repository"
+            echo "❌ Nested vendor/xiaomi/spinel exists in repository"
             exit 1
           fi
 
-          echo "âœ… No nested vendor/xiaomi/spinel"
+          echo "✅ No nested vendor/xiaomi/spinel"
 
           # ------------------------------------------------------
           # IWPRIV
@@ -1263,7 +1263,7 @@ jobs:
           if grep -n '^bin/iwpriv' \
             "$PROP_LIST"; then
 
-            echo "âŒ bin/iwpriv exists"
+            echo "❌ bin/iwpriv exists"
             exit 1
           fi
 
@@ -1274,11 +1274,11 @@ jobs:
           )"
 
           if [[ "$IWPRIV_COUNT" -ne 1 ]]; then
-            echo "âŒ vendor/bin/iwpriv count = $IWPRIV_COUNT"
+            echo "❌ vendor/bin/iwpriv count = $IWPRIV_COUNT"
             exit 1
           fi
 
-          echo "âœ… vendor/bin/iwpriv exists exactly once"
+          echo "✅ vendor/bin/iwpriv exists exactly once"
 
           # ------------------------------------------------------
           # Unsupported partitions
@@ -1288,11 +1288,11 @@ jobs:
             '^(system|vendor_dlkm|odm_dlkm|mi_ext|bin)/' \
             "$PROP_LIST"; then
 
-            echo "âŒ Unsupported partition entries remain"
+            echo "❌ Unsupported partition entries remain"
             exit 1
           fi
 
-          echo "âœ… No unsupported partition entries (vendor+system_ext+product only)"
+          echo "✅ No unsupported partition entries (vendor+system_ext+product only)"
 
           # ------------------------------------------------------
           # VINTF manifests handled by extract-utils automatically
@@ -1302,12 +1302,12 @@ jobs:
             'manifest_nonfc_' \
             "$PROP_LIST"; then
 
-            echo "â„¹ï¸ VINTF manifests present in official list"
+            echo "ℹ️ VINTF manifests present in official list"
             echo "   (extract-utils handles them automatically)"
           fi
 
           if ! grep -q 'manifest_nonfc_' "$PROP_LIST"; then
-            echo "âŒ Expected manifest_nonfc_ entries in official list"
+            echo "❌ Expected manifest_nonfc_ entries in official list"
             exit 1
           fi
 
@@ -1323,11 +1323,11 @@ jobs:
             )"
 
             if [[ -z "$FOUND" ]]; then
-              echo "âŒ $f not found under proprietary/"
+              echo "❌ $f not found under proprietary/"
               exit 1
             fi
 
-            echo "âœ… $f restored by extract-utils"
+            echo "✅ $f restored by extract-utils"
             echo "   $FOUND"
 
           done
@@ -1338,7 +1338,7 @@ jobs:
 
           echo
           echo "============================================================"
-          echo "ðŸ“ FINAL ROOT LAYOUT"
+          echo "📁 FINAL ROOT LAYOUT"
           echo "============================================================"
 
           find "$ROOT" \
@@ -1379,14 +1379,14 @@ jobs:
 
           echo
           echo "============================================================"
-          echo "ðŸŽ‰ FINAL VALIDATION PASSED"
+          echo "🎉 FINAL VALIDATION PASSED"
           echo "============================================================"
 
       # ==========================================================
       # 20. REPORT
       # ==========================================================
 
-      - name: ðŸ“ Generate build report
+      - name: 📝 Generate build report
         shell: bash
         run: |
           set -euo pipefail
@@ -1434,20 +1434,20 @@ jobs:
               | wc -l
           } > reports/build-report.md
 
-          echo "âœ… Report generated"
+          echo "✅ Report generated"
 
       # ==========================================================
       # 21. GIT STATUS
       # ==========================================================
 
-      - name: ðŸ“Š Git status
+      - name: 📊 Git status
         shell: bash
         run: |
           set -euo pipefail
 
           echo
           echo "============================================================"
-          echo "ðŸ“Š FINAL GIT STATUS"
+          echo "📊 FINAL GIT STATUS"
           echo "============================================================"
 
           git status --short
@@ -1460,7 +1460,7 @@ jobs:
       # 22. PUSH
       # ==========================================================
 
-      - name: ðŸš€ Commit and push
+      - name: 🚀 Commit and push
         if: ${{ inputs.push_changes }}
         shell: bash
         run: |
@@ -1469,14 +1469,14 @@ jobs:
           echo "Current branch: $GITHUB_REF_NAME"
 
           if [[ "$GITHUB_REF_NAME" != "lineage-23.2" ]]; then
-            echo "âŒ Push allowed only on lineage-23.2"
+            echo "❌ Push allowed only on lineage-23.2"
             exit 1
           fi
 
           # Vendor-only repository: only the official vendor tree
           # artifacts are committed. proprietary-files.txt and
           # extract-files.py are device-tree files, and reports/ holds
-          # CI working/ traceability files â€” never part of the tracked
+          # CI working/ traceability files — never part of the tracked
           # vendor tree.
           git add \
             Android.bp \
@@ -1489,7 +1489,7 @@ jobs:
             .github
 
           if git diff --cached --quiet; then
-            echo "â„¹ï¸ Nothing to commit"
+            echo "ℹ️ Nothing to commit"
             exit 0
           fi
 
@@ -1500,13 +1500,13 @@ jobs:
             origin \
             "HEAD:lineage-23.2"
 
-          echo "âœ… Changes pushed"
+          echo "✅ Changes pushed"
 
       # ==========================================================
       # 23. ARTIFACT
       # ==========================================================
 
-      - name: ðŸ“¦ Create artifact
+      - name: 📦 Create artifact
         if: ${{ inputs.upload_artifact }}
         shell: bash
         run: |
@@ -1532,7 +1532,7 @@ jobs:
       # 24. UPLOAD
       # ==========================================================
 
-      - name: â¬†ï¸ Upload artifact
+      - name: ⬆️ Upload artifact
         if: ${{ inputs.upload_artifact }}
         uses: actions/upload-artifact@v4
         with:
