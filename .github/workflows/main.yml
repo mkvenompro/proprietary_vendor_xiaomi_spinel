@@ -881,16 +881,21 @@ jobs:
           echo "============================================================"
           echo "🔧 PATCH CLONED LIST FOR UPSTREAM GENERATOR PARITY"
           echo "============================================================"
-          echo "Upstream write_product_packages() has no package rule for"
-          echo "vintf manifests listed with a vendor/odm prefix, so the"
-          echo "official --regenerate_makefiles pass aborts on them."
-          echo "Both files are absent from this dump, dropping exactly"
-          echo "those 2 lines from the run-local clone only."
+          echo "Upstream extract_dump() canonicalizes the dump layout via"
+          echo "move_alternate_partition_paths(): vendor/odm is MOVED to"
+          echo "odm/ at the dump root before copying. Entries listed with"
+          echo "a vendor/odm prefix therefore never resolve, and vintf"
+          echo "manifests under that prefix additionally match no package"
+          echo "rule in write_product_packages(). Normalize the run-local"
+          echo "clone to the canonical odm/ prefix (entry count unchanged)."
 
           LIST="$DEVICE_TREE/proprietary-files.txt"
           cp "$LIST" "$LIST.orig"
-          grep -v '^vendor/odm/etc/vintf/manifest_nonfc_' "$LIST.orig" > "$LIST"
-          echo "Removed lines: $(($(grep -c . "$LIST.orig" || true) - $(grep -c . "$LIST" || true)))"
+          sed 's|^vendor/odm/|odm/|' "$LIST.orig" > "$LIST"
+          echo "Entries before: $(grep -c . "$LIST.orig" || true)"
+          echo "Entries after:  $(grep -c . "$LIST" || true)"
+          echo "odm-prefixed entries: $(grep -c '^odm/' "$LIST" || true)"
+          grep -c '^vendor/odm/' "$LIST" || echo "(no vendor/odm lines remain)"
           grep -n 'manifest_nonfc' "$LIST" || echo "(no manifest_nonfc lines remain)"
 
           echo
@@ -1086,12 +1091,44 @@ jobs:
 
           echo "$COUNT"
 
-          if [[ "$COUNT" -ne 6372 ]]; then
-            echo "❌ Expected 6372 proprietary files"
+          echo
+          echo "Expected count (patched official list vs normalized dump):"
+
+          DUMP="$GITHUB_WORKSPACE/$STOCK_DUMP_DIR"
+          LIST="$WORK_PARENT/device/xiaomi/spinel/proprietary-files.txt"
+
+          EXPECTED=0
+          MISSING_LIST=""
+
+          while IFS= read -r line || [[ -n "$line" ]]; do
+            case "$line" in
+              ''|'#'*|'['*']') continue ;;
+            esac
+            e="${line%%;*}"
+            e="${e#-}"
+            e="${e%%:*}"
+            case "$e" in
+              vendor/odm/*) e="odm/${e#vendor/odm/}" ;;
+            esac
+            if [[ -e "$DUMP/$e" ]]; then
+              EXPECTED=$((EXPECTED + 1))
+            else
+              MISSING_LIST="$MISSING_LIST $e"
+            fi
+          done < "$LIST"
+
+          echo "EXPECTED=$EXPECTED"
+
+          if [[ -n "$MISSING_LIST" ]]; then
+            echo "Absent from dump:$MISSING_LIST"
+          fi
+
+          if [[ "$COUNT" -ne "$EXPECTED" ]]; then
+            echo "❌ COUNT=$COUNT differs from EXPECTED=$EXPECTED"
             exit 1
           fi
 
-          echo "✅ proprietary file count matches official list"
+          echo "✅ proprietary file count matches dump-backed official list ($COUNT)"
 
           if [[ "${{ inputs.copy_radio }}" == "true" ]]; then
 
@@ -1228,6 +1265,27 @@ jobs:
           echo
           echo "✅ Vendor tree copied to repository root (vendor-only)"
 
+          echo
+          echo "Snapshotting device-side lists for final validation..."
+
+          mkdir -p "$ROOT/reports"
+
+          SRC_DEVICE_TREE="$GITHUB_WORKSPACE/$DEVICE_TREE_DIR"
+
+          cp \
+            "$SRC_DEVICE_TREE/proprietary-files.txt" \
+            "$ROOT/reports/proprietary-files-final.txt"
+
+          cp \
+            "$SRC_DEVICE_TREE/proprietary-firmware.txt" \
+            "$ROOT/reports/proprietary-firmware.txt"
+
+          cp \
+            "$SRC_DEVICE_TREE/extract-files.py" \
+            "$ROOT/reports/extract-files.py"
+
+          echo "✅ reports/ snapshotted (traceability only, never committed)"
+
       # ==========================================================
       # 18b. GITATTRIBUTES (OFFICIAL VENDOR TREE CONVENTION)
       # ==========================================================
@@ -1323,10 +1381,43 @@ jobs:
 
           echo "$COUNT"
 
-          if [[ "$COUNT" -ne 6372 ]]; then
-            echo "❌ Expected 6372 proprietary files"
+          echo
+          echo "Expected count (original official list vs repo tree):"
+
+          LIST="$ROOT/reports/proprietary-files-final.txt"
+
+          EXPECTED=0
+          MISSING_LIST=""
+
+          while IFS= read -r line || [[ -n "$line" ]]; do
+            case "$line" in
+              ''|'#'*|'['*']') continue ;;
+            esac
+            e="${line%%;*}"
+            e="${e#-}"
+            e="${e%%:*}"
+            case "$e" in
+              vendor/odm/*) e="odm/${e#vendor/odm/}" ;;
+            esac
+            if [[ -e "$ROOT/proprietary/$e" ]]; then
+              EXPECTED=$((EXPECTED + 1))
+            else
+              MISSING_LIST="$MISSING_LIST $e"
+            fi
+          done < "$LIST"
+
+          echo "EXPECTED=$EXPECTED"
+
+          if [[ -n "$MISSING_LIST" ]]; then
+            echo "Absent from repo tree:$MISSING_LIST"
+          fi
+
+          if [[ "$COUNT" -ne "$EXPECTED" ]]; then
+            echo "❌ COUNT=$COUNT differs from EXPECTED=$EXPECTED"
             exit 1
           fi
+
+          echo "✅ repo proprietary file count matches dump-backed official list ($COUNT)"
 
           if [[ "${{ inputs.copy_radio }}" == "true" ]]; then
 
