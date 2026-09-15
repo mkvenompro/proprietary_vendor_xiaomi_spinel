@@ -826,6 +826,22 @@ jobs:
 
           echo
           echo "============================================================"
+          echo "🔧 PATCH CLONED LIST FOR UPSTREAM GENERATOR PARITY"
+          echo "============================================================"
+          echo "Upstream write_product_packages() has no package rule for"
+          echo "vintf manifests listed with a vendor/odm prefix, so the"
+          echo "official --regenerate_makefiles pass aborts on them."
+          echo "Both files are absent from this dump, dropping exactly"
+          echo "those 2 lines from the run-local clone only."
+
+          LIST="$DEVICE_TREE/proprietary-files.txt"
+          cp "$LIST" "$LIST.orig"
+          grep -v '^vendor/odm/etc/vintf/manifest_nonfc_' "$LIST.orig" > "$LIST"
+          echo "Removed lines: $(($(grep -c . "$LIST.orig" || true) - $(grep -c . "$LIST" || true)))"
+          grep -n 'manifest_nonfc' "$LIST" || echo "(no manifest_nonfc lines remain)"
+
+          echo
+          echo "============================================================"
           echo "📝 REGENERATING OFFICIAL MAKEFILES (setup-makefiles)"
           echo "============================================================"
           echo "extract-files.py returns before write_makefiles() when any"
