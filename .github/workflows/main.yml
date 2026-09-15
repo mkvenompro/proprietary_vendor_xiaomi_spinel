@@ -6,7 +6,7 @@ on:
       stock_rom_url:
         description: "Official Xiaomi Fastboot ROM URL - RADIO ONLY"
         required: false
-        default: "https://bigota.d.miui.com/OS2.0.212.0.VPGMIXM/spinel_global_images_OS2.0.212.0.VPGMIXM_20260311.0000.00_15.0_global_1e7d24d317.tgz"
+        default: "https://xm05.space/MyUrLiwlJzsOOD0BMz8GIywRNEEOFTAINBUpIzE/KzUOPDJBGyEELhsQMDUxIS0eGz8dLzE/Hx4OFQRBDjwfDDQ8Kw8bFQQeNBIuAA4KBCYzPC0wMQofHg4KHwwxED0kQh4HLycSIjgnAwcvJxIXFUIJNB8QMjUfDj8fQTMVFy0xBD0gMSE9ATkVABwzFTA1GxEyHjwuPQMnASJBDgIHACcBIkEOLRsGKy4wQBUJMBwnAh04HwIdHicDCS8nFh1BJxIiQScEOgAfECJBPBE0JjERQDUxBDoAGwM0KScCKyknHgk/DiArIAsgADonAywiBQNCPx8eOTAFHRMT"
         type: string
 
       stock_dump_branch:
@@ -823,6 +823,26 @@ jobs:
           python3 \
             "$DEVICE_TREE/extract-files.py" \
             "$GITHUB_WORKSPACE/$STOCK_DUMP_DIR"
+
+          echo
+          echo "============================================================"
+          echo "📝 REGENERATING OFFICIAL MAKEFILES (setup-makefiles)"
+          echo "============================================================"
+          echo "extract-files.py returns before write_makefiles() when any"
+          echo "listed file is missing from the dump, so root makefiles"
+          echo "(spinel-vendor.mk, BoardConfigVendor.mk, Android.bp,"
+          echo "Android.mk) are generated here via the official"
+          echo "--regenerate_makefiles pass (same as setup-makefiles.py)."
+
+          python3 \
+            "$DEVICE_TREE/extract-files.py" \
+            --regenerate_makefiles
+
+          echo
+          echo "✅ OFFICIAL MAKEFILES REGENERATED"
+          echo
+          echo "Root files:"
+          ls -la "$VENDOR_TREE"
 
           echo
           echo "============================================================"
