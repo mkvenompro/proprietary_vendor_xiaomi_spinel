@@ -1250,6 +1250,14 @@ jobs:
           #   ROOT/radio/
           # ------------------------------------------------------
 
+          # Start from a clean slate: drop any previously-tracked
+          # proprietary/ and radio/ outputs first. rsync merges
+          # otherwise, so stale files from older generations linger
+          # and inflate the file counts. The repository must hold
+          # exactly what this run generated.
+
+          rm -rf "$ROOT/proprietary" "$ROOT/radio"
+
           rsync -a \
             "$VENDOR_TREE/" \
             "$ROOT/"
