@@ -1,4 +1,4 @@
-﻿name: 🧬 Build LineageOS Vendor Tree • spinel
+name: 🧬 Build LineageOS Vendor Tree • spinel
 
 on:
   workflow_dispatch:
