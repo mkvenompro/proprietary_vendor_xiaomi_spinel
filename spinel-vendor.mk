@@ -4351,7 +4351,6 @@ PRODUCT_PACKAGES += \
     MtkTelephonyAssist \
     Provision \
     RtMiCloudSDK \
-    Settings \
     SetupWizard \
     SmartRatSwitch \
     StorageManager \
