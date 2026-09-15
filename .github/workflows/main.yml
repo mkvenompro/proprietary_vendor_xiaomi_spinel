@@ -905,6 +905,30 @@ jobs:
       # 17. VALIDATE GENERATED VENDOR TREE
       # ==========================================================
 
+      - name: 🧬 Ensure root Android.bp (official soong namespace)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VENDOR_TREE="$WORK_PARENT/vendor/xiaomi/spinel"
+
+          if [[ ! -f "$VENDOR_TREE/Android.bp" ]]; then
+            echo "Ensuring root Android.bp (official soong_namespace)..."
+
+            cat > "$VENDOR_TREE/Android.bp" <<'EOF'
+// Automatically generated file. DO NOT MODIFY
+
+soong_namespace {}
+EOF
+          fi
+
+          echo "✅ Android.bp:"
+          cat "$VENDOR_TREE/Android.bp"
+
+          # ==========================================================
+          # 20. VALIDATE GENERATED VENDOR TREE
+          # ==========================================================
+
       - name: ✅ Validate generated vendor tree
         shell: bash
         run: |
