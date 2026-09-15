@@ -871,23 +871,17 @@ jobs:
           echo "✅ Extraction files exist"
 
           echo
-          echo "Starting extractor..."
-
-          python3 \
-            "$DEVICE_TREE/extract-files.py" \
-            "$GITHUB_WORKSPACE/$STOCK_DUMP_DIR"
-
-          echo
           echo "============================================================"
           echo "🔧 PATCH CLONED LIST FOR UPSTREAM GENERATOR PARITY"
           echo "============================================================"
           echo "Upstream extract_dump() canonicalizes the dump layout via"
           echo "move_alternate_partition_paths(): vendor/odm is MOVED to"
-          echo "odm/ at the dump root before copying. Entries listed with"
-          echo "a vendor/odm prefix therefore never resolve, and vintf"
-          echo "manifests under that prefix additionally match no package"
-          echo "rule in write_product_packages(). Normalize the run-local"
-          echo "clone to the canonical odm/ prefix (entry count unchanged)."
+          echo "odm/ at the dump root BEFORE any file is copied. Entries"
+          echo "listed with a vendor/odm prefix therefore never resolve"
+          echo "during extraction, and vintf manifests under that prefix"
+          echo "additionally match no package rule in write_product_"
+          echo "packages(). Normalize the run-local clone to the canonical"
+          echo "odm/ prefix BEFORE extraction (entry count unchanged)."
 
           LIST="$DEVICE_TREE/proprietary-files.txt"
           cp "$LIST" "$LIST.orig"
@@ -897,6 +891,13 @@ jobs:
           echo "odm-prefixed entries: $(grep -c '^odm/' "$LIST" || true)"
           grep -c '^vendor/odm/' "$LIST" || echo "(no vendor/odm lines remain)"
           grep -n 'manifest_nonfc' "$LIST" || echo "(no manifest_nonfc lines remain)"
+
+          echo
+          echo "Starting extractor..."
+
+          python3 \
+            "$DEVICE_TREE/extract-files.py" \
+            "$GITHUB_WORKSPACE/$STOCK_DUMP_DIR"
 
           echo
           echo "============================================================"
