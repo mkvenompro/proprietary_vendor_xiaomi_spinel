@@ -1,4 +1,4 @@
-name: 🧬 Build LineageOS Vendor Tree • spinel
+﻿name: 🧬 Build LineageOS Vendor Tree • spinel
 
 on:
   workflow_dispatch:
@@ -916,10 +916,10 @@ jobs:
             echo "Ensuring root Android.bp (official soong_namespace)..."
 
             cat > "$VENDOR_TREE/Android.bp" <<'EOF'
-// Automatically generated file. DO NOT MODIFY
+            // Automatically generated file. DO NOT MODIFY
 
-soong_namespace {}
-EOF
+            soong_namespace {}
+            EOF
           fi
 
           echo "✅ Android.bp:"
