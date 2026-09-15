@@ -915,15 +915,16 @@ jobs:
           if [[ ! -f "$VENDOR_TREE/Android.bp" ]]; then
             echo "Ensuring root Android.bp (official soong_namespace)..."
 
-            cat > "$VENDOR_TREE/Android.bp" <<'EOF'
-            // Automatically generated file. DO NOT MODIFY
-
-            soong_namespace {}
-            EOF
+            printf '%s\n' \
+              '// Automatically generated file. DO NOT MODIFY' \
+              '' \
+              'soong_namespace {}' \
+              > "$VENDOR_TREE/Android.bp"
           fi
 
           echo "✅ Android.bp:"
           cat "$VENDOR_TREE/Android.bp"
+
 
           # ==========================================================
           # 20. VALIDATE GENERATED VENDOR TREE
