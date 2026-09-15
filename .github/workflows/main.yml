@@ -756,6 +756,59 @@ jobs:
           echo
           echo "✅ Radio firmware staged"
 
+      - name: 🔍 Diagnose dump layout for missing blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DUMP_ROOT="$GITHUB_WORKSPACE/$STOCK_DUMP_DIR"
+
+          echo
+          echo "============================================================"
+          echo "🔍 DUMP LAYOUT DIAGNOSIS (23 paths reported missing)"
+          echo "============================================================"
+          echo "Dump root:"
+          ls "$DUMP_ROOT"
+
+          for p in \
+            "system_ext/priv-app/Settings/Settings.apk" \
+            "vendor/odm/etc/camera/camerabooster.json" \
+            "vendor/odm/etc/camera/cameraopt.json" \
+            "vendor/odm/etc/dsi_p7_35_0f_0c_dsc_vdo_mi.xml" \
+            "vendor/odm/etc/dsi_p7_36_0d_0a_dsc_vdo_mi.xml" \
+            "vendor/odm/etc/dsi_p7_41_02_0b_dsc_vdo_mi.xml" \
+            "vendor/odm/etc/init/init.SNxxx.nfc.rc" \
+            "vendor/odm/etc/libnfc-nxp.conf" \
+            "vendor/odm/etc/libnfc-nxp_RF.conf" \
+            "vendor/odm/etc/permissions/sku_hcesim_dsds/android.hardware.nfc.hce.xml" \
+            "vendor/odm/etc/permissions/sku_hcesim_dsds/android.hardware.nfc.hcef.xml" \
+            "vendor/odm/etc/permissions/sku_hcesim_dsds/android.hardware.nfc.uicc.xml" \
+            "vendor/odm/etc/permissions/sku_hcesim_dsds/android.hardware.nfc.xml" \
+            "vendor/odm/etc/permissions/sku_hcesim_dsds/com.android.nfc_extras.xml" \
+            "vendor/odm/etc/permissions/sku_hcesim_dsds/com.nxp.mifare.xml" \
+            "vendor/odm/etc/permissions/sku_hcesim_ss/android.hardware.nfc.hce.xml" \
+            "vendor/odm/etc/permissions/sku_hcesim_ss/android.hardware.nfc.hcef.xml" \
+            "vendor/odm/etc/permissions/sku_hcesim_ss/android.hardware.nfc.uicc.xml" \
+            "vendor/odm/etc/permissions/sku_hcesim_ss/android.hardware.nfc.xml" \
+            "vendor/odm/etc/permissions/sku_hcesim_ss/com.android.nfc_extras.xml" \
+            "vendor/odm/etc/permissions/sku_hcesim_ss/com.nxp.mifare.xml" \
+            "vendor/odm/etc/vintf/manifest_nonfc_dsds.xml" \
+            "vendor/odm/etc/vintf/manifest_nonfc_ss.xml" \
+          ; do
+            if [[ -e "$DUMP_ROOT/$p" ]]; then
+              echo "HAVE($([ -f "$DUMP_ROOT/$p" ] && wc -c < "$DUMP_ROOT/$p" || echo DIR)) $p"
+            else
+              echo "MISS $p"
+            fi
+          done
+
+          echo
+          echo "Parent dirs on runner:"
+          ls "$DUMP_ROOT/vendor/odm/etc/vintf" || true
+          ls "$DUMP_ROOT/system_ext/priv-app/Settings" || true
+          ls "$DUMP_ROOT/vendor/odm/etc/permissions/sku_hcesim_dsds" || true
+          ls "$DUMP_ROOT/vendor/odm/etc/camera" || true
+
       # ==========================================================
       # 15. EXTRACTION
       # ==========================================================
